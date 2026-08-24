@@ -9,12 +9,11 @@ apiVersion: 1
 providers:
   - name: fwtrack
     type: file
-    # Generated dashboards are read-only on purpose: regeneration rewrites the
-    # file wholesale, so an edit made here would be lost without warning. To
-    # customise one, Save As -- the copy lives in Grafana's own database and the
-    # generator never touches it. Anything worth keeping for everyone gets
-    # ported back into the generator instead.
-    allowUiUpdates: false
+    # Editable so layouts can be worked out by hand. The generator still owns
+    # the file: regenerating rewrites it and the provider then discards whatever
+    # was changed here. Export anything worth keeping and port it back into the
+    # generator, or Save As for a private copy the generator never touches.
+    allowUiUpdates: true
     updateIntervalSeconds: 30
     options:
       path: /var/lib/grafana/dashboards
