@@ -25,13 +25,23 @@ RETURNING id
 """
 
 INSERT_USAGE = """
-INSERT INTO memory_usage (build_id, region, area, used, total, thresholds)
-VALUES (%(build_id)s, %(region)s, %(area)s, %(used)s, %(total)s, %(thresholds)s)
+INSERT INTO memory_usage (build_id, region, area, used, total)
+VALUES (%(build_id)s, %(region)s, %(area)s, %(used)s, %(total)s)
 ON CONFLICT (build_id, region) DO UPDATE
-    SET area       = EXCLUDED.area,
-        used       = EXCLUDED.used,
-        total      = EXCLUDED.total,
-        thresholds = EXCLUDED.thresholds
+    SET area  = EXCLUDED.area,
+        used  = EXCLUDED.used,
+        total = EXCLUDED.total
+"""
+
+# updated_at only moves when the value really changed, so the column stays a
+# useful record of when a budget was last revised.
+UPSERT_BUDGET = """
+INSERT INTO region_budgets (project, region, thresholds)
+VALUES (%(project)s, %(region)s, %(thresholds)s)
+ON CONFLICT (project, region) DO UPDATE
+    SET thresholds = EXCLUDED.thresholds,
+        updated_at = now()
+    WHERE region_budgets.thresholds IS DISTINCT FROM EXCLUDED.thresholds
 """
 
 
@@ -59,7 +69,22 @@ def write_build(conn: psycopg.Connection, build: dict, regions: list) -> int:
 
         cur.executemany(
             INSERT_USAGE,
-            [{"build_id": build_id, **region} for region in regions],
+            [
+                {k: v for k, v in {"build_id": build_id, **region}.items() if k != "thresholds"}
+                for region in regions
+            ],
+        )
+        cur.executemany(
+            UPSERT_BUDGET,
+            [
+                {
+                    "project": build["project"],
+                    "region": region["region"],
+                    "thresholds": region["thresholds"],
+                }
+                for region in regions
+                if region["thresholds"]
+            ],
         )
 
     conn.commit()
@@ -78,3 +103,52 @@ def fetch_column(conn: psycopg.Connection, query: str, params: tuple = ()) -> li
     with conn.cursor() as cur:
         cur.execute(query, params)
         return [row[0] for row in cur.fetchall()]
+
+
+def discover_variant_tags(conn: psycopg.Connection, project: str) -> list:
+    """Dimensions this project actually records, whatever it chose to call them."""
+    return fetch_column(
+        conn,
+        "SELECT DISTINCT jsonb_object_keys(tags) FROM builds WHERE project = %s ORDER BY 1",
+        (project,),
+    )
+
+
+def discover_areas(conn: psycopg.Connection, project: str) -> list:
+    return fetch_column(
+        conn,
+        "SELECT DISTINCT area FROM memory_points WHERE project = %s ORDER BY 1",
+        (project,),
+    )
+
+
+def discover_regions(conn: psycopg.Connection, project: str, area: str) -> list:
+    return fetch_column(
+        conn,
+        "SELECT DISTINCT region FROM memory_points WHERE project = %s AND area = %s ORDER BY 1",
+        (project, area),
+    )
+
+
+def region_limits(conn: psycopg.Connection, project: str) -> dict:
+    """Size and warning levels of each region, as of the most recent build.
+
+    Grafana thresholds are panel configuration rather than data, so they have to
+    be baked in when the dashboard is generated. Taking them from the latest
+    build means a change to either only reaches the dashboard on regeneration.
+    """
+    query = """
+        SELECT DISTINCT ON (m.region) m.region, m.total, COALESCE(g.thresholds, '{}')
+        FROM builds b
+        JOIN memory_usage m ON m.build_id = b.id
+        LEFT JOIN region_budgets g ON g.project = b.project AND g.region = m.region
+        WHERE b.project = %s
+        ORDER BY m.region, b.built_at DESC
+    """
+    with conn.cursor() as cur:
+        cur.execute(query, (project,))
+        return {region: (total, list(thresholds or [])) for region, total, thresholds in cur}
+
+
+def list_projects(conn: psycopg.Connection) -> list:
+    return fetch_column(conn, "SELECT DISTINCT project FROM builds ORDER BY 1")

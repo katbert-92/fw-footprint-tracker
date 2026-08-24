@@ -11,11 +11,15 @@ datasources:
     type: postgres
     access: proxy
     url: ${FWTRACK_DB_HOST}
-    database: ${FWTRACK_DB_NAME}
     user: ${FWTRACK_DB_USER}
     isDefault: true
     editable: false
     jsonData:
+      # Grafana 11 moved the database name into jsonData. The top level
+      # `database:` field is still accepted but the variable query path no
+      # longer reads it, which shows up as "no default database configured"
+      # on every template variable while panels keep working.
+      database: ${FWTRACK_DB_NAME}
       sslmode: disable
       postgresVersion: 1700
       timescaledb: false

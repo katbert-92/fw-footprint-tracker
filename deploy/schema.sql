@@ -30,13 +30,25 @@ CREATE TABLE IF NOT EXISTS memory_usage (
     build_id   BIGINT NOT NULL REFERENCES builds(id) ON DELETE CASCADE,
     region     TEXT   NOT NULL,              -- as named by the linker script
     area       TEXT   NOT NULL,              -- user-defined grouping: flash, ram, ...
-    used       BIGINT NOT NULL,
-    total      BIGINT NOT NULL,              -- physical size, from the MAP file
-    thresholds SMALLINT[] NOT NULL DEFAULT '{}',  -- warn levels in percent
+    used     BIGINT NOT NULL,
+    total    BIGINT NOT NULL,                -- physical size, from the MAP file
     PRIMARY KEY (build_id, region)
 );
 
 CREATE INDEX IF NOT EXISTS memory_usage_area ON memory_usage (area);
+
+-- Warning levels live here rather than on every row of memory_usage: they are a
+-- property of a region, not of a build, and repeating the same array for every
+-- build times region is a lot of duplication for a value that rarely changes.
+-- What a gate needs is the current budget anyway, not the one that happened to
+-- be in force six months ago.
+CREATE TABLE IF NOT EXISTS region_budgets (
+    project    TEXT        NOT NULL,
+    region     TEXT        NOT NULL,
+    thresholds SMALLINT[]  NOT NULL,          -- percentages, ascending
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (project, region)
+);
 
 -- Flattens the join out of every dashboard query and keeps derived values in
 -- one place. Percentages are computed on read: storing them would just be a
@@ -56,8 +68,9 @@ SELECT b.id AS build_id,
        m.area,
        m.used,
        m.total,
-       m.thresholds,
+       COALESCE(g.thresholds, '{}') AS thresholds,
        m.total - m.used AS free,
        ROUND(100.0 * m.used / NULLIF(m.total, 0), 3) AS pcnt
 FROM builds b
-JOIN memory_usage m ON m.build_id = b.id;
+JOIN memory_usage m ON m.build_id = b.id
+LEFT JOIN region_budgets g ON g.project = b.project AND g.region = m.region;

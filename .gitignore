@@ -7,4 +7,6 @@ dist/
 venv/
 
 .env
-deploy/grafana/dashboards/*.json
+# Generated per project into a subdirectory, which the dashboard provider
+# turns into a Grafana folder. Artefacts: regenerate with fwtrack-dash.
+deploy/grafana/dashboards/**/*.json
