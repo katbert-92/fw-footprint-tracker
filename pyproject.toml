@@ -34,10 +34,12 @@ Homepage = "https://github.com/katbert-92/fw-footprint-tracker"
 Issues = "https://github.com/katbert-92/fw-footprint-tracker/issues"
 
 [project.scripts]
+fwtrack = "fwtrack.cli:main"
 fwtrack-analyse = "fwtrack.analyse:main"
 fwtrack-push = "fwtrack.track:main"
 fwtrack-dash = "fwtrack.grafana.gen_dashboard:main"
 fwtrack-init = "fwtrack.init:main"
+fwtrack-import-influx = "fwtrack.import_influx:main"
 
 [tool.setuptools.packages.find]
 include = ["fwtrack*"]
