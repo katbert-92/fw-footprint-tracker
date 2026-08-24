@@ -14,15 +14,18 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 from . import db
 from .config import (
     DEFAULT_CONFIG_FILE,
     collect_custom_tags,
     load_config,
+    load_meta,
     resolve_area,
+    resolve_project,
     resolve_thresholds,
+    resolve_version,
 )
 from .log import get_logger, setup_logging
 
@@ -37,13 +40,13 @@ def parse_args():
     parser.add_argument(
         "-i", "--input", type=Path, required=True, help="Region usage JSON from fwtrack-analyse"
     )
-    parser.add_argument(
-        "-m", "--meta", type=Path, required=True, help="Build metadata JSON"
-    )
+    parser.add_argument("-m", "--meta", type=Path, help="Build metadata JSON, if the project has one")
     parser.add_argument(
         "-c", "--config", type=Path, default=DEFAULT_CONFIG_FILE, help="Tracking config"
     )
-    parser.add_argument("--toolchain", default="", help="Toolchain string, from the ELF")
+    parser.add_argument(
+        "--toolchain", default="", help="Override the toolchain recorded by fwtrack-analyse"
+    )
     parser.add_argument(
         "-C", "--repo", type=Path, default=Path("."),
         help="Repository to read commit and dirty state from (default: current directory)",
@@ -89,40 +92,50 @@ def git_output(repo: Path, *args: str) -> str:
         return ""
 
 
-def resolve_timestamp(meta: dict, repo: Path) -> tuple:
-    """When the build happened, and whether the tree was dirty.
+def resolve_timestamp(repo: Path, dirty: bool):
+    """When the build happened.
 
     On a clean tree the commit time is used: re-running CI on the same commit
     then overwrites the same row instead of adding a duplicate, and the history
     tracks the code rather than the build queue. On a dirty tree the commit no
-    longer describes the binary, so the build time is used and every local
+    longer describes the binary, so the current time is used and every local
     iteration stays its own point.
     """
-    dirty = bool(git_output(repo, "status", "--porcelain", "--untracked-files=no"))
-
     if not dirty:
         commit_ts = git_output(repo, "show", "-s", "--format=%ct", "HEAD")
         if commit_ts.isdigit():
-            return datetime.fromtimestamp(int(commit_ts), timezone.utc), False
-        logger.warning("Could not read commit timestamp, falling back to build time")
+            return datetime.fromtimestamp(int(commit_ts), timezone.utc)
+        logger.warning("Could not read commit timestamp, falling back to the current time")
 
-    build_ts = meta.get("ts")
-    if isinstance(build_ts, int):
-        return datetime.fromtimestamp(build_ts, timezone.utc), dirty
-
-    logger.warning("No usable 'ts' in build metadata, falling back to the current time")
-    return datetime.now(timezone.utc), dirty
+    return datetime.now(timezone.utc)
 
 
-def build_record(meta: dict, config: dict, cli_tags: list, toolchain: str, repo: Path) -> dict:
-    built_at, dirty = resolve_timestamp(meta, repo)
+def build_record(meta: dict, config: dict, cli_tags: list, toolchain: str,
+                 repo: Path, project_override: str | None = None,
+                 version_override: str | None = None) -> dict:
+    """Everything about a build except the numbers.
+
+    Only the tags come from the project's metadata file; the rest is read from
+    git, so a project that writes no such file works just as well.
+    """
+    project = project_override or resolve_project(meta, config)
+    if not project:
+        logger.error("No project name: set `project` in the config or pass --project")
+        sys.exit(1)
+
+    dirty = bool(git_output(repo, "status", "--porcelain", "--untracked-files=no"))
+    version = (
+        version_override
+        or resolve_version(meta, config)
+        or git_output(repo, "describe", "--tags", "--abbrev=0")
+    )
 
     return {
-        "project": str(meta["prj"]),
-        "built_at": built_at,
-        "commit": str(meta.get("hash", "")),
-        "branch": str(meta.get("branch", "")),
-        "version": f"v{meta.get('major', 0)}.{meta.get('minor', 0)}.{meta.get('build', 0)}",
+        "project": project,
+        "built_at": resolve_timestamp(repo, dirty),
+        "commit": git_output(repo, "rev-parse", "--short", "HEAD"),
+        "branch": git_output(repo, "rev-parse", "--abbrev-ref", "HEAD"),
+        "version": version or None,
         "origin": "ci" if os.getenv("CI") else "local",
         "dirty": dirty,
         "toolchain": toolchain or None,
@@ -148,17 +161,23 @@ def region_records(usage: dict, config: dict) -> list:
 def main():
     setup_logging()
     args = parse_args()
-    load_dotenv()  # the environment wins over .env: an explicit switch must work
+    # usecwd: without it dotenv searches from this file, which once installed
+    # means the package's own directory rather than the project being built.
+    # The environment still wins over .env, so an explicit switch works.
+    load_dotenv(find_dotenv(usecwd=True))
 
     if os.getenv(ENABLE_ENV, "0").lower() not in TRUTHY:
         logger.info(f"{ENABLE_ENV} is not set, skipping upload")
         return
 
-    meta = read_json(args.meta)
-    usage = read_json(args.input)
+    analysis = read_json(args.input)
     config = load_config(args.config)
+    meta = load_meta(config, args.meta)
 
-    build = build_record(meta, config, args.tag, args.toolchain, args.repo)
+    usage = analysis["regions"]
+    toolchain = args.toolchain or analysis.get("toolchain", "")
+
+    build = build_record(meta, config, args.tag, toolchain, args.repo)
     regions = region_records(usage, config)
 
     if args.dry_run:

@@ -111,12 +111,14 @@ def print_memory_usage(region_usage: dict) -> None:
 
 def analyse(elf_path: Path, map_path: Path) -> dict:
     map_info = MapParser(map_path).get_regions_info()
-    segments = ElfParser(elf_path).get_segments_info()
+    elf = ElfParser(elf_path)
 
-    usage = compute_memory_usage(map_info, segments)
+    usage = compute_memory_usage(map_info, elf.get_segments_info())
     print_memory_usage(usage)
 
-    return usage
+    # Anything the ELF already knows travels with the numbers, so the caller
+    # never has to dig it out and pass it along by hand.
+    return {"toolchain": elf.get_toolchain(), "regions": usage}
 
 
 def main():
