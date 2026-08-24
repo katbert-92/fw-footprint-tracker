@@ -1,0 +1,60 @@
+# Server side of the tracker: a database and a Grafana that already knows about
+# it. The same file runs locally and on a server -- only .env differs.
+#
+#   cp .env.example .env && docker compose up -d
+#
+# Ports bind to the loopback interface on purpose. Exposing them is a decision
+# for whatever reverse proxy sits in front, not a default.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: fwtrack-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fwtrack}
+      POSTGRES_USER: ${POSTGRES_USER:-fwtrack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, on an empty data directory only.
+      - ./deploy/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fwtrack} -d ${POSTGRES_DB:-fwtrack}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  grafana:
+    # Pinned: the dashboard JSON schema drifts between majors, and dashboards
+    # generated against one major can render wrong on another.
+    image: grafana/grafana:13.0.1
+    container_name: fwtrack-grafana
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      # Without this the first screen is a login prompt, which is exactly the
+      # friction this tool is meant to avoid. Viewers still cannot edit.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_DEFAULT_THEME: dark
+      # Consumed by the provisioned datasource.
+      FWTRACK_DB_HOST: postgres:5432
+      FWTRACK_DB_NAME: ${POSTGRES_DB:-fwtrack}
+      FWTRACK_DB_USER: ${POSTGRES_USER:-fwtrack}
+      FWTRACK_DB_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  pgdata:
+  grafana-data:
