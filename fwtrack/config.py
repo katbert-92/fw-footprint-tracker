@@ -7,6 +7,7 @@ wants to slice by.
 """
 
 import fnmatch
+import json
 import os
 import tomllib
 from pathlib import Path
@@ -15,7 +16,16 @@ from .log import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_CONFIG_FILE = Path("fw_tracking.toml")
+# Looked for in order, so a project can keep the config at its root or tuck it
+# in with the rest of the build system.
+CONFIG_CANDIDATES = [
+    Path("fw_tracking.toml"),
+    Path("build/fw_tracking.toml"),
+    Path(".config/fw_tracking.toml"),
+]
+DEFAULT_CONFIG_FILE = CONFIG_CANDIDATES[0]
+DEFAULT_ELF = Path("fw.elf")
+DEFAULT_MAP = Path("fw.map")
 FALLBACK_AREA = "other"
 
 # Applied when the config says nothing. Chosen to be noticeable but not noisy:
@@ -29,8 +39,16 @@ CORE_FIELDS = frozenset(
 )
 
 
-def load_config(path: Path) -> dict:
-    if not path.is_file():
+def find_config(explicit: Path | None = None) -> Path | None:
+    """Locate the tracking config, so the usual case needs no arguments."""
+    if explicit:
+        return explicit if explicit.is_file() else None
+
+    return next((p for p in CONFIG_CANDIDATES if p.is_file()), None)
+
+
+def load_config(path: Path | None) -> dict:
+    if path is None or not path.is_file():
         logger.warning(f"Config not found: {path}, using defaults")
         return {}
 
@@ -91,6 +109,65 @@ def parse_tag_pairs(pairs, source: str) -> dict:
     return tags
 
 
+def load_meta(config: dict, override: Path | None = None) -> dict:
+    """Build metadata produced by whatever build system this project uses.
+
+    Entirely optional, and never a format this tool defines. Everything needed
+    about a build -- commit, branch, time, dirtiness -- comes from git, and the
+    project name from the config. This reads a file the project already writes,
+    under whatever key names it already uses, purely to pick up dimensions worth
+    slicing by. A project without one declares its tags with --tag or
+    FWTRACK_TAGS, or has none at all.
+
+    JSON or TOML.
+    """
+    path = override or config.get("meta", {}).get("file")
+    if not path:
+        return {}
+
+    path = Path(path)
+    if not path.is_file():
+        logger.warning(f"Metadata file not found: {path}, continuing without it")
+        return {}
+
+    if path.suffix == ".toml":
+        with path.open("rb") as f:
+            return tomllib.load(f)
+
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def resolve_version(meta: dict, config: dict) -> str | None:
+    """Firmware version, if this project has one.
+
+    Deliberately not a tag: every tag becomes a single-select dashboard filter,
+    and being forced to pick one version would hide exactly the trend across
+    versions the charts exist to show. It behaves like the branch instead --
+    something you look through, not something you filter down to.
+    """
+    literal = config.get("version")
+    if literal:
+        return str(literal)
+
+    key = config.get("meta", {}).get("version")
+    if key and key in meta:
+        return str(meta[key])
+
+    return None
+
+
+def resolve_project(meta: dict, config: dict) -> str | None:
+    if "project" in config:
+        return str(config["project"])
+
+    key = config.get("meta", {}).get("project")
+    if key and key in meta:
+        return str(meta[key])
+
+    return None
+
+
 def collect_custom_tags(meta: dict, config: dict, cli_tags: list) -> dict:
     """Custom dimensions from the config, then the environment, then arguments.
 
@@ -99,11 +176,17 @@ def collect_custom_tags(meta: dict, config: dict, cli_tags: list) -> dict:
     """
     tags = {}
 
-    for key in config.get("tags", {}).get("from_meta", []):
+    for key in config.get("meta", {}).get("tags", []):
         if key in meta:
             tags[key] = str(meta[key])
         else:
-            logger.debug(f"Tag '{key}' declared in config but absent from build metadata")
+            # Loud on purpose: a declared dimension missing from a build makes
+            # that build invisible under a dashboard filter on it, with nothing
+            # to show why.
+            logger.warning(
+                f"Tag '{key}' is declared in the config but missing from the build metadata; "
+                "builds without it will not show under a filter on it"
+            )
 
     tags.update(parse_tag_pairs(os.getenv("FWTRACK_TAGS", "").split(","), "FWTRACK_TAGS"))
     tags.update(parse_tag_pairs(cli_tags, "--tag"))
