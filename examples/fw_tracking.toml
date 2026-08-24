@@ -1,0 +1,66 @@
+# Firmware memory tracking configuration.
+#
+# Copy next to your build system and point fwtrack-push at it. Everything here
+# is project specific: the tool sets only the core fields the dashboards are
+# built on (project, region, area, commit, branch, version, origin, dirty,
+# toolchain) and lets you declare any other dimension you want to slice by.
+
+# ── Warning thresholds ───────────────────────────────────────────────────────
+#
+# Percentages of a region's physical size, which is read from the MAP file and
+# never configured. Given as a list, so each entry adds a colour band on the
+# dashboards: [85, 90, 99] renders green / yellow / orange / red.
+#
+# Most specific setting wins:  [region.NAME]  >  [[group]]  >  [defaults]
+
+[defaults]
+thresholds = [75, 85, 95]
+
+# ── Custom tags ──────────────────────────────────────────────────────────────
+#
+# from_meta lists the keys to copy out of the build metadata JSON. For a
+# different build system this list looks different (board, build_type, sdk...).
+#
+# Two more ways in, each overriding the one above:
+#   FWTRACK_TAGS="board=nucleo,build_type=Release"   environment
+#   fwtrack-push --tag board=nucleo                  argument, repeatable
+#
+# Avoid tags that duplicate one another. A dimension derived from another one
+# (optimisation level implied by a config index, say) becomes a second dashboard
+# filter that is easy to set to a combination that never existed, and the panels
+# then go blank with no hint why.
+
+[tags]
+from_meta = ["type", "tag", "cfg", "layout", "platform", "bsp"]
+
+# ── Memory areas ─────────────────────────────────────────────────────────────
+#
+# Groups linker regions into the areas the dashboard repeats over. First
+# matching group wins, so narrower patterns go first. A region matching nothing
+# is still recorded, under the area "other", so a region newly added to a linker
+# script shows up instead of vanishing.
+#
+# name       value of the `area` column, and of the dashboard variable
+# title      human readable label
+# match      region name patterns (fnmatch: *, ?, [seq])
+# thresholds optional override for every region in the group
+
+[[group]]
+name = "flash"
+title = "Internal Flash"
+match = ["FLASH", "FLASH_GRAPHICS"]
+thresholds = [85, 90, 99]
+
+[[group]]
+name = "flash_ext"
+title = "External QSPI Flash"
+match = ["FLASH_QSPI", "*QSPI*"]
+
+[[group]]
+name = "ram"
+title = "RAM"
+match = ["SRAM*", "RAM*", "CCM*"]
+
+# Per-region override, for the one region that needs a tighter budget.
+[region.SRAM1]
+thresholds = [70, 80, 90]
