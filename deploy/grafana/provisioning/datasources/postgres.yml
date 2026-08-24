@@ -1,0 +1,23 @@
+# Datasource is created on startup, so a fresh container needs no clicking.
+# Values come from the environment set in docker-compose.yml.
+
+apiVersion: 1
+
+datasources:
+  - name: fwtrack
+    # Fixed uid: generated dashboards reference the datasource by uid, so it has
+    # to stay the same across recreations of the container.
+    uid: fwtrack-postgres
+    type: postgres
+    access: proxy
+    url: ${FWTRACK_DB_HOST}
+    database: ${FWTRACK_DB_NAME}
+    user: ${FWTRACK_DB_USER}
+    isDefault: true
+    editable: false
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1700
+      timescaledb: false
+    secureJsonData:
+      password: ${FWTRACK_DB_PASSWORD}

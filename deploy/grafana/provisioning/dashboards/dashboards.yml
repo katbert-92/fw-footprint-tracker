@@ -1,0 +1,16 @@
+# Picks up whatever fwtrack-dash wrote into deploy/grafana/dashboards/.
+#
+# foldersFromFilesStructure puts each project in its own Grafana folder, which
+# is where per-project permissions are granted -- a dashboard variable would be
+# a filter, not a boundary.
+
+apiVersion: 1
+
+providers:
+  - name: fwtrack
+    type: file
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true
