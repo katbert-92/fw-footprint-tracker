@@ -11,11 +11,11 @@ DS = {"type": "grafana-postgresql-datasource", "uid": "${datasource}"}
 THRESHOLD_COLOURS = ["#EAB839", "orange", "red", "dark-red"]
 
 
-def _target(sql: str, table: bool = False) -> list:
+def _target(sql: str, table: bool = False, ref: str = "A") -> list:
     return [
         {
             "datasource": DS,
-            "refId": "A",
+            "refId": ref,
             "format": "table" if table else "time_series",
             "rawQuery": True,
             "rawSql": sql,
@@ -31,34 +31,6 @@ def _threshold_steps(values: list, base: str = "green") -> dict:
         steps.append({"color": THRESHOLD_COLOURS[min(i, len(THRESHOLD_COLOURS) - 1)], "value": value})
 
     return {"mode": "absolute", "steps": steps}
-
-
-def _region_threshold_overrides(region_limits: dict) -> list:
-    """Dashed lines on the byte axis, one set per region.
-
-    Thresholds are stored as percentages, but the trend is plotted in bytes, so
-    they are converted here using the region size recorded with the latest
-    build. A linker script change moves the size, and the dashboard has to be
-    regenerated for the lines to follow.
-    """
-    overrides = []
-    for region, (total, thresholds) in sorted(region_limits.items()):
-        if not thresholds or not total:
-            continue
-
-        absolute = [round(total * pct / 100) for pct in thresholds]
-        overrides.append(
-            {
-                "matcher": {"id": "byRegexp", "options": f"^{region} · .*"},
-                "properties": [
-                    {"id": "thresholds", "value": _threshold_steps(absolute)},
-                    {"id": "custom.thresholdsStyle", "value": {"mode": "dashed"}},
-                    {"id": "max", "value": total},
-                ],
-            }
-        )
-
-    return overrides
 
 
 def stat_last_delta(variant_tags: list, width: int) -> dict:
@@ -196,13 +168,14 @@ def row_per_area() -> dict:
     }
 
 
-def timeseries_trend(variant_tags: list, region_limits: dict) -> dict:
+def timeseries_trend(variant_tags: list) -> dict:
     return {
         "type": "timeseries",
-        "title": "Trend over time — $area",
+        "title": "Usage over time — $area",
         "datasource": DS,
         "gridPos": {"h": 10, "w": 14, "x": 0, "y": 22},
-        "targets": _target(queries.trend(variant_tags)),
+        "targets": _target(queries.trend(variant_tags))
+        + _target(queries.area_capacity(variant_tags), ref="B"),
         "options": {
             "legend": {
                 "displayMode": "table",
@@ -214,6 +187,9 @@ def timeseries_trend(variant_tags: list, region_limits: dict) -> dict:
         },
         "fieldConfig": {
             "defaults": {
+                # One shared axis in bytes. Per-field limits would make Grafana
+                # split the series onto separate axes, where two lines drawn at
+                # different scales look parallel however far apart they are.
                 "unit": "bytes",
                 "min": 0,
                 "custom": {
@@ -222,58 +198,77 @@ def timeseries_trend(variant_tags: list, region_limits: dict) -> dict:
                     "pointSize": 6,
                     "showPoints": "always",
                     "spanNulls": True,
-                    "fillOpacity": 8,
+                    "fillOpacity": 25,
                     "lineInterpolation": "stepAfter",
+                    "stacking": {"mode": "normal", "group": "A"},
                 },
             },
-            "overrides": _region_threshold_overrides(region_limits),
+            "overrides": [
+                {
+                    "matcher": {"id": "byName", "options": "Capacity"},
+                    "properties": [
+                        {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}},
+                        {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [10, 10]}},
+                        {"id": "custom.fillOpacity", "value": 0},
+                        {"id": "custom.lineWidth", "value": 2},
+                        {"id": "custom.showPoints", "value": "never"},
+                        # Kept out of the stack: it is the ceiling the stack is
+                        # measured against, not another slice of it.
+                        {"id": "custom.stacking", "value": {"mode": "none"}},
+                    ],
+                }
+            ],
         },
     }
 
 
-def barchart_by_build(variant_tags: list, regions: list) -> dict:
+def _bars(title: str, sql: str, grid: dict, show_value: str = "never") -> dict:
+    """Bars over time rather than a bar chart panel.
+
+    The bar chart wants one column per series, which has to be written into the
+    SQL; with the panel repeated across areas and a single shared query that
+    puts every region of the project on every area's chart. A time series takes
+    the series name from a column, so each repeat shows only its own regions.
+    """
     return {
-        "type": "barchart",
-        "title": "By build (commit · date) — $area",
+        "type": "timeseries",
+        "title": title,
         "datasource": DS,
-        "gridPos": {"h": 10, "w": 10, "x": 14, "y": 22},
-        "targets": _target(queries.by_build(variant_tags, regions), table=True),
+        "gridPos": grid,
+        "targets": _target(sql),
         "options": {
-            "xField": "build",
-            "orientation": "auto",
-            "stacking": "normal",
-            "showValue": "never",
-            "xTickLabelRotation": -45,
             "legend": {"displayMode": "list", "placement": "bottom", "showLegend": True},
             "tooltip": {"mode": "multi", "sort": "desc"},
         },
         "fieldConfig": {
-            "defaults": {"unit": "bytes", "custom": {"fillOpacity": 85, "lineWidth": 0}},
+            "defaults": {
+                "unit": "bytes",
+                "custom": {
+                    "drawStyle": "bars",
+                    "fillOpacity": 85,
+                    "lineWidth": 0,
+                    "barAlignment": 0,
+                    "showPoints": "never",
+                    "axisSoftMin": 0,
+                },
+            },
             "overrides": [],
         },
     }
 
 
-def barchart_delta(variant_tags: list, regions: list) -> dict:
-    return {
-        "type": "barchart",
-        "title": "Delta vs previous build — $area",
-        "datasource": DS,
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32},
-        "targets": _target(queries.delta_by_build(variant_tags, regions), table=True),
-        "options": {
-            "xField": "build",
-            "orientation": "auto",
-            # Not stacked: deltas of opposite sign cancel each other out in a
-            # stack and the bar stops meaning anything.
-            "stacking": "none",
-            "showValue": "auto",
-            "xTickLabelRotation": -45,
-            "legend": {"displayMode": "list", "placement": "bottom", "showLegend": True},
-            "tooltip": {"mode": "multi", "sort": "desc"},
-        },
-        "fieldConfig": {
-            "defaults": {"unit": "bytes", "custom": {"fillOpacity": 85, "lineWidth": 0}},
-            "overrides": [],
-        },
-    }
+def barchart_by_build(variant_tags: list) -> dict:
+    return _bars(
+        "By build — $area",
+        queries.by_build(variant_tags),
+        {"h": 10, "w": 10, "x": 14, "y": 22},
+    )
+
+
+def barchart_delta(variant_tags: list) -> dict:
+    return _bars(
+        "Delta vs previous build — $area",
+        queries.delta_by_build(variant_tags),
+        {"h": 8, "w": 24, "x": 0, "y": 32},
+        show_value="auto",
+    )

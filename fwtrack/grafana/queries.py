@@ -14,7 +14,15 @@ database which regions an area has and writes them out, which means a region
 newly added to a linker script needs the dashboard regenerated.
 """
 
-BUILD_LABEL = "commit || ' · ' || to_char(built_at, 'DD.MM HH24:MI:SS')"
+# Shown for builds recorded before a dimension existed, or after a project
+# stopped recording it. Without it those builds match no value of the filter and
+# vanish from every panel with nothing to say why; as a value of its own it is
+# selectable, and the gap in the history is visible instead of silent.
+NO_VALUE = "(none)"
+
+
+def _dimension(tag: str) -> str:
+    return f"COALESCE(tags->>'{tag}', '{NO_VALUE}')"
 
 # Seconds are not decoration: local rebuilds of a dirty tree share a commit and
 # land within the same minute, and without them every bar collapses into one
@@ -28,17 +36,24 @@ def _filters(variant_tags: list) -> str:
     one chart is meaningless, the difference between profiles dwarfs any feature.
     """
     lines = ["  WHERE project = '$project'"]
-    lines += [f"    AND tags->>'{tag}' = '${tag}'" for tag in variant_tags]
+    lines += [f"    AND {_dimension(tag)} = '${tag}'" for tag in variant_tags]
     lines += [
         "    AND branch IN (${branch:sqlstring})",
         "    AND origin IN (${origin:sqlstring})",
+        # Regions are filtered here rather than by clicking the legend, so the
+        # choice sticks across panels and reloads. The capacity line follows
+        # suit: the ceiling of what is on screen, not of what was left out.
+        "    AND region IN (${region:sqlstring})",
         "    AND $__timeFilter(built_at)",
     ]
     return "\n".join(lines)
 
 
 def trend(variant_tags: list) -> str:
-    """Usage over time, one series per region and branch.
+    """Bytes used over time, one series per region and branch.
+
+    branch belongs in the series name: without it points from different branches
+    merge into a single line that jumps between them.
 
     branch belongs in the series name: without it points from different branches
     merge into a single line that jumps between them.
@@ -49,6 +64,23 @@ def trend(variant_tags: list) -> str:
 FROM memory_points
 {_filters(variant_tags)}
     AND area = '$area'
+ORDER BY 1"""
+
+
+def area_capacity(variant_tags: list) -> str:
+    """Total size of the area, as a series so it labels itself.
+
+    A panel threshold cannot serve here: the panel is repeated across areas and
+    its configuration is shared, while the capacity differs for each. Coming
+    from the query it follows the repeat on its own.
+    """
+    return f"""SELECT built_at AS time,
+       SUM(total) AS value,
+       'Capacity' AS metric
+FROM memory_points
+{_filters(variant_tags)}
+    AND area = '$area'
+GROUP BY built_at
 ORDER BY 1"""
 
 
@@ -119,36 +151,30 @@ FROM memory_points
 ORDER BY built_at DESC"""
 
 
-def _region_columns(regions: list, expr: str) -> str:
-    return ",\n".join(
-        f"       MAX({expr}) FILTER (WHERE region = '{region}') AS \"{region}\""
-        for region in regions
-    )
+def by_build(variant_tags: list) -> str:
+    """Bytes per region per build.
 
-
-def by_build(variant_tags: list, regions: list) -> str:
-    """Absolute usage with the commit on the x axis.
-
-    A categorical axis is more honest than a time axis when builds arrive
-    unevenly: a quiet day, then five builds in an hour.
+    Long format, one row per region: a wide one would have to name its columns
+    in SQL, and since the panel is repeated across areas with a single query
+    that means every region of the project appears on every area's chart.
     """
-    return f"""SELECT {BUILD_LABEL} AS build,
-{_region_columns(regions, "used")}
+    return f"""SELECT built_at AS time,
+       used AS value,
+       region AS metric
 FROM memory_points
 {_filters(variant_tags)}
     AND area = '$area'
-GROUP BY build_id, built_at, commit
-ORDER BY built_at"""
+ORDER BY 1"""
 
 
-def delta_by_build(variant_tags: list, regions: list) -> str:
+def delta_by_build(variant_tags: list) -> str:
     return f"""{_delta_cte(variant_tags)}
-SELECT {BUILD_LABEL} AS build,
-{_region_columns(regions, "delta")}
+SELECT built_at AS time,
+       delta AS value,
+       region AS metric
 FROM deltas
 WHERE delta IS NOT NULL
-GROUP BY build_id, built_at, commit
-ORDER BY built_at"""
+ORDER BY 1"""
 
 
 def variable_values(tag: str, depends_on: list) -> str:
@@ -159,22 +185,29 @@ def variable_values(tag: str, depends_on: list) -> str:
     means -O1 while opt=0 sits next to it. The dashboard then shows No data with
     no hint as to why.
     """
-    conditions = ["project = '$project'"]
-    conditions += [f"tags->>'{name}' = '${name}'" for name in depends_on]
+    conditions = ["project = '$project'", "$__timeFilter(built_at)"]
+    conditions += [f"{_dimension(name)} = '${name}'" for name in depends_on]
 
     return (
-        f"SELECT DISTINCT tags->>'{tag}' AS value\n"
+        f"SELECT DISTINCT {_dimension(tag)} AS value\n"
         "FROM builds\n"
         f"WHERE {' AND '.join(conditions)}\n"
-        f"  AND tags ? '{tag}'\n"
         "ORDER BY 1"
     )
 
 
 def simple_values(column: str, table: str = "memory_points") -> str:
+    """Values of a plain column, limited to the dashboard's time range.
+
+    The time filter is what keeps this usable on a long-lived project: without
+    it every branch that ever existed stays in the dropdown for ever, and
+    picking a dead one shows an empty dashboard that looks broken rather than
+    finished.
+    """
     return (
         f"SELECT DISTINCT {column} AS value\n"
         f"FROM {table}\n"
         "WHERE project = '$project'\n"
-        f"ORDER BY 1"
+        "  AND $__timeFilter(built_at)\n"
+        "ORDER BY 1"
     )

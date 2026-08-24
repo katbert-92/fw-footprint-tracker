@@ -6,8 +6,7 @@ switch it. Permissions in Grafana are granted on folders, so each project gets
 its own dashboard in its own folder with the project baked in as a constant.
 
 Nothing about the project is hardcoded here. The dimensions builds are split by,
-the memory areas, the regions in each area and their warning levels all come out
-of the database, so a project that calls its dimensions board and build_type
+the memory areas and the warning levels all come out of the database, so a project that calls its dimensions board and build_type
 works exactly like one that calls them cfg and bsp.
 
     fwtrack-dash --project dmd                 # write JSON for provisioning
@@ -23,7 +22,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 from .. import db
 from ..log import get_logger, setup_logging
@@ -57,6 +56,13 @@ def parse_args():
     parser.add_argument(
         "--variant-tags", help="Comma separated dimensions, overriding what the database reports"
     )
+    parser.add_argument(
+        "--exclude-tags",
+        default="",
+        help="Comma separated tags to leave out of the filters, without touching the history. "
+        "Use for a dimension a project has stopped recording, or one that turned out to "
+        "duplicate another",
+    )
 
     return parser.parse_args()
 
@@ -77,9 +83,9 @@ def query_variable(name: str, label: str, sql: str, multi: bool = False) -> dict
             "format": "table",
             "editorMode": "code",
         },
-        # On dashboard load: these queries do not depend on the time range, and
-        # waiting for a range change leaves the variables empty on first open.
-        "refresh": 1,
+        # On time range change: the queries are filtered by it, so narrowing the
+        # range must narrow the choices too.
+        "refresh": 2,
         "multi": multi,
         "includeAll": multi,
         # A multi variable with no current value comes back empty, the IN clause
@@ -120,12 +126,13 @@ def build_variables(project: str, variant_tags: list, datasource_uid: str) -> li
         query_variable("branch", "Branch", queries.simple_values("branch"), multi=True),
         query_variable("origin", "Build origin", queries.simple_values("origin"), multi=True),
         query_variable("area", "Memory area", queries.simple_values("area"), multi=True),
+        query_variable("region", "Region", queries.simple_values("region"), multi=True),
     ]
 
     return variables
 
 
-def build_dashboard(project: str, variant_tags: list, areas: list, regions: list,
+def build_dashboard(project: str, variant_tags: list, areas: list,
                     limits: dict, datasource_uid: str) -> dict:
     # Repeated panels split the top row evenly between the memory areas.
     width = max(24 // max(len(areas), 1), 3)
@@ -154,9 +161,9 @@ def build_dashboard(project: str, variant_tags: list, areas: list, regions: list
             panels.bargauge_usage(variant_tags, width, limits),
             panels.table_builds(variant_tags),
             panels.row_per_area(),
-            panels.timeseries_trend(variant_tags, limits),
-            panels.barchart_by_build(variant_tags, regions),
-            panels.barchart_delta(variant_tags, regions),
+            panels.timeseries_trend(variant_tags),
+            panels.barchart_by_build(variant_tags),
+            panels.barchart_delta(variant_tags),
         ],
     }
 
@@ -204,7 +211,7 @@ def push(dashboard: dict, folder_uid: str | None) -> None:
 def main():
     setup_logging()
     args = parse_args()
-    load_dotenv()
+    load_dotenv(find_dotenv(usecwd=True))
 
     with db.connect() as conn:
         if not db.schema_ready(conn):
@@ -218,9 +225,13 @@ def main():
         )
         areas = db.discover_areas(conn, args.project)
         limits = db.region_limits(conn, args.project)
-        regions = {
-            area: db.discover_regions(conn, args.project, area) for area in areas
-        }
+
+    excluded = {t.strip() for t in args.exclude_tags.split(",") if t.strip()}
+    if excluded:
+        dropped = sorted(excluded & set(variant_tags))
+        if dropped:
+            logger.info(f"Excluded from the filters: {', '.join(dropped)}")
+        variant_tags = [t for t in variant_tags if t not in excluded]
 
     if not variant_tags:
         logger.warning(f"No dimensions recorded for '{args.project}', using defaults")
@@ -229,16 +240,11 @@ def main():
         logger.warning(f"No data for '{args.project}' yet, using default areas")
         areas = list(FALLBACK_AREAS)
 
-    # Bar charts need their region columns named at generation time, because SQL
-    # cannot produce column names at run time. Every region of the project is
-    # listed; the area filter in the WHERE clause blanks the irrelevant ones.
-    all_regions = sorted({r for rs in regions.values() for r in rs})
-
     logger.info(f"Dimensions: {', '.join(variant_tags)}")
     logger.info(f"Memory areas: {', '.join(areas)}")
 
     dashboard = build_dashboard(
-        args.project, variant_tags, areas, all_regions, limits, args.datasource_uid
+        args.project, variant_tags, areas, limits, args.datasource_uid
     )
 
     # One directory per project: the dashboard provider turns directories into
