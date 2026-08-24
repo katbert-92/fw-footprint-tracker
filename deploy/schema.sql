@@ -31,7 +31,10 @@ CREATE TABLE IF NOT EXISTS memory_usage (
     region     TEXT   NOT NULL,              -- as named by the linker script
     area       TEXT   NOT NULL,              -- user-defined grouping: flash, ram, ...
     used     BIGINT NOT NULL,
-    total    BIGINT NOT NULL,                -- physical size, from the MAP file
+    -- Nullable: history imported from a tracker that never recorded region
+    -- sizes has no honest value to put here, and inventing one would make the
+    -- percentages lie. The view turns a missing size into a NULL percentage.
+    total    BIGINT,                         -- physical size, from the MAP file
     PRIMARY KEY (build_id, region)
 );
 
