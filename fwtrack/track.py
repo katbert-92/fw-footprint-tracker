@@ -134,6 +134,19 @@ def resolve_branch(repo: Path, override: str | None = None) -> str:
     return DETACHED
 
 
+def resolve_author(repo: Path, override: str | None = None) -> str | None:
+    """Who wrote the commit this build came from.
+
+    A hint, not an attribution: on a branch with many commits this is whoever
+    touched it last, and on a merge it is whoever merged. Enough to know who to
+    ask about a jump; pinning a jump on a change needs the symbol level.
+    """
+    if override:
+        return override
+
+    return git_output(repo, "log", "-1", "--format=%an") or None
+
+
 def resolve_timestamp(repo: Path, dirty: bool):
     """When the build happened.
 
@@ -155,7 +168,8 @@ def resolve_timestamp(repo: Path, dirty: bool):
 def build_record(meta: dict, config: dict, cli_tags: list, toolchain: str,
                  repo: Path, project_override: str | None = None,
                  version_override: str | None = None,
-                 branch_override: str | None = None) -> dict:
+                 branch_override: str | None = None,
+                 author_override: str | None = None) -> dict:
     """Everything about a build except the numbers.
 
     Only the tags come from the project's metadata file; the rest is read from
@@ -181,6 +195,7 @@ def build_record(meta: dict, config: dict, cli_tags: list, toolchain: str,
         "version": version or None,
         "origin": "ci" if os.getenv("CI") else "local",
         "dirty": dirty,
+        "author": resolve_author(repo, author_override),
         "toolchain": toolchain or None,
         "tags": collect_custom_tags(meta, config, cli_tags),
     }

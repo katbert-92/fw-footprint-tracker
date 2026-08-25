@@ -18,14 +18,16 @@ TOKEN_ENV = "FWTRACK_INGEST_TOKEN"
 USER_AGENT = "fw-footprint-tracker/1.0"
 
 INSERT_BUILD = """
-INSERT INTO builds (project, built_at, commit, branch, version, origin, dirty, toolchain, tags)
+INSERT INTO builds (project, built_at, commit, branch, version, origin, dirty,
+                    author, toolchain, tags)
 VALUES (%(project)s, %(built_at)s, %(commit)s, %(branch)s, %(version)s,
-        %(origin)s, %(dirty)s, %(toolchain)s, %(tags)s)
+        %(origin)s, %(dirty)s, %(author)s, %(toolchain)s, %(tags)s)
 ON CONFLICT (project, commit, built_at, tags) DO UPDATE
     SET branch    = EXCLUDED.branch,
         version   = EXCLUDED.version,
         origin    = EXCLUDED.origin,
         dirty     = EXCLUDED.dirty,
+        author    = EXCLUDED.author,
         toolchain = EXCLUDED.toolchain
 RETURNING id
 """

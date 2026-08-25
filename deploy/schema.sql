@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS builds (
     version   TEXT,
     origin    TEXT        NOT NULL,          -- 'ci' | 'local'
     dirty     BOOLEAN     NOT NULL,
+    -- Author of the commit, as a hint at who to ask about a jump. Not a tag:
+    -- tags become single-choice filters, and being made to pick one person to
+    -- see the chart at all is the opposite of useful.
+    author    TEXT,
     toolchain TEXT,                          -- read from the ELF .comment section
     tags      JSONB       NOT NULL DEFAULT '{}'
 );
@@ -65,6 +69,7 @@ SELECT b.id AS build_id,
        b.version,
        b.origin,
        b.dirty,
+       b.author,
        b.toolchain,
        b.tags,
        m.region,

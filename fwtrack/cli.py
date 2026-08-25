@@ -43,6 +43,7 @@ def parse_args():
     parser.add_argument(
         "--branch", help="Branch name, for a CI checkout git cannot name itself"
     )
+    parser.add_argument("--author", help="Commit author, overriding what git reports")
     parser.add_argument(
         "-o", "--output", type=Path, help="Also write the analysis to this JSON file"
     )
@@ -69,6 +70,7 @@ def run(
     project: str | None = None,
     version: str | None = None,
     branch: str | None = None,
+    author: str | None = None,
     tags: list | None = None,
     repo: Path | str = ".",
     output: Path | str | None = None,
@@ -122,6 +124,7 @@ def run(
         project,
         version,
         branch,
+        author,
     )
     regions = region_records(analysis["regions"], settings)
 
@@ -146,6 +149,7 @@ def main():
             project=args.project,
             version=args.version,
             branch=args.branch,
+            author=args.author,
             tags=args.tag,
             repo=args.repo,
             output=args.output,
