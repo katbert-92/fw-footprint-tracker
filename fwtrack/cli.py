@@ -41,6 +41,9 @@ def parse_args():
     parser.add_argument("--project", help="Project name, overriding the config")
     parser.add_argument("--version", help="Firmware version, overriding the config")
     parser.add_argument(
+        "--branch", help="Branch name, for a CI checkout git cannot name itself"
+    )
+    parser.add_argument(
         "-o", "--output", type=Path, help="Also write the analysis to this JSON file"
     )
     parser.add_argument(
@@ -65,6 +68,7 @@ def run(
     meta: Path | str | None = None,
     project: str | None = None,
     version: str | None = None,
+    branch: str | None = None,
     tags: list | None = None,
     repo: Path | str = ".",
     output: Path | str | None = None,
@@ -117,6 +121,7 @@ def run(
         Path(repo),
         project,
         version,
+        branch,
     )
     regions = region_records(analysis["regions"], settings)
 
@@ -125,8 +130,7 @@ def run(
         logger.info(f"Dry run: {len(regions)} regions not written")
         return None
 
-    with db.connect() as conn:
-        return db.write_build(conn, build, regions)
+    return db.record(build, regions)
 
 
 def main():
@@ -141,6 +145,7 @@ def main():
             meta=args.meta,
             project=args.project,
             version=args.version,
+            branch=args.branch,
             tags=args.tag,
             repo=args.repo,
             output=args.output,

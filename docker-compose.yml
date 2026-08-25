@@ -55,6 +55,27 @@ services:
       - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
 
+  # Lets build runners record a build with a token instead of database
+  # credentials, so the database never has to leave the loopback interface.
+  ingest:
+    build: .
+    container_name: fwtrack-ingest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      FWTRACK_DSN: postgresql://${POSTGRES_USER:-fwtrack}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-fwtrack}
+      FWTRACK_INGEST_TOKEN: ${FWTRACK_INGEST_TOKEN:?run `make up`, which generates one}
+    ports:
+      - "127.0.0.1:${INGEST_PORT:-8099}:8099"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8099/ingest/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
 volumes:
   pgdata:
   grafana-data:

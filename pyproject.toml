@@ -40,6 +40,7 @@ fwtrack-push = "fwtrack.track:main"
 fwtrack-dash = "fwtrack.grafana.gen_dashboard:main"
 fwtrack-init = "fwtrack.init:main"
 fwtrack-import-influx = "fwtrack.import_influx:main"
+fwtrack-server = "fwtrack.server:main"
 
 [tool.setuptools.packages.find]
 include = ["fwtrack*"]

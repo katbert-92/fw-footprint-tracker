@@ -1,6 +1,9 @@
-"""Database access: connection handling and the writes a build produces."""
+"""Recording a build: straight to the database, or over HTTP to the ingest endpoint."""
 
+import json
 import os
+import urllib.error
+import urllib.request
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -10,6 +13,9 @@ from .log import get_logger
 logger = get_logger(__name__)
 
 DSN_ENV = "FWTRACK_DSN"
+URL_ENV = "FWTRACK_URL"
+TOKEN_ENV = "FWTRACK_INGEST_TOKEN"
+USER_AGENT = "fw-footprint-tracker/1.0"
 
 INSERT_BUILD = """
 INSERT INTO builds (project, built_at, commit, branch, version, origin, dirty, toolchain, tags)
@@ -43,6 +49,50 @@ ON CONFLICT (project, region) DO UPDATE
         updated_at = now()
     WHERE region_budgets.thresholds IS DISTINCT FROM EXCLUDED.thresholds
 """
+
+
+def record(build: dict, regions: list) -> int | None:
+    """Store one build, whichever way this environment is set up for.
+
+    A build runner is given a URL and a token; anything with direct access to
+    the database is given a DSN. Callers do not need to know which.
+    """
+    url = os.getenv(URL_ENV)
+    if url:
+        return post(url, build, regions)
+
+    with connect() as conn:
+        return write_build(conn, build, regions)
+
+
+def post(url: str, build: dict, regions: list) -> int | None:
+    token = os.getenv(TOKEN_ENV)
+    if not token:
+        raise RuntimeError(f"{TOKEN_ENV} must be set when {URL_ENV} is used")
+
+    payload = json.dumps(
+        {"build": build, "regions": regions},
+        default=lambda o: o.isoformat() if hasattr(o, "isoformat") else str(o),
+    ).encode()
+
+    request = urllib.request.Request(
+        f"{url.rstrip('/')}/ingest/builds",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            result = json.loads(response.read())
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Ingest returned {e.code}: {e.read().decode()[:200]}") from e
+
+    logger.info(f"Recorded build {result.get('build_id')} via {url}")
+    return result.get("build_id")
 
 
 def get_dsn() -> str:

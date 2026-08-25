@@ -92,6 +92,48 @@ def git_output(repo: Path, *args: str) -> str:
         return ""
 
 
+# Set by the CI system, in the order they should be trusted. A merge request
+# build should be attributed to the branch being merged, not to the temporary
+# ref the runner checked out.
+CI_BRANCH_VARS = [
+    "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME",  # GitLab, merge request pipelines
+    "CI_COMMIT_BRANCH",                     # GitLab, branch pipelines
+    "CI_COMMIT_REF_NAME",                   # GitLab, tags included
+    "GITHUB_HEAD_REF",                      # GitHub, pull requests
+    "GITHUB_REF_NAME",                      # GitHub, pushes
+    "BRANCH_NAME",                          # Jenkins
+]
+DETACHED = "HEAD"
+
+
+def resolve_branch(repo: Path, override: str | None = None) -> str:
+    """Name of the branch this build belongs to.
+
+    A CI runner checks out a commit rather than a branch, and git then reports
+    the branch as 'HEAD'. Recording that loses the one dimension the whole
+    comparison rests on, so the CI environment is consulted whenever git cannot
+    name a branch.
+    """
+    if override:
+        return override
+
+    branch = git_output(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    if branch and branch != DETACHED:
+        return branch
+
+    for name in CI_BRANCH_VARS:
+        value = os.getenv(name)
+        if value:
+            logger.info(f"Detached HEAD: taking the branch from {name}")
+            return value
+
+    logger.warning(
+        "Detached HEAD and no CI branch variable set; recording the branch as "
+        f"'{DETACHED}'. Pass --branch to name it explicitly"
+    )
+    return DETACHED
+
+
 def resolve_timestamp(repo: Path, dirty: bool):
     """When the build happened.
 
@@ -112,7 +154,8 @@ def resolve_timestamp(repo: Path, dirty: bool):
 
 def build_record(meta: dict, config: dict, cli_tags: list, toolchain: str,
                  repo: Path, project_override: str | None = None,
-                 version_override: str | None = None) -> dict:
+                 version_override: str | None = None,
+                 branch_override: str | None = None) -> dict:
     """Everything about a build except the numbers.
 
     Only the tags come from the project's metadata file; the rest is read from
@@ -134,7 +177,7 @@ def build_record(meta: dict, config: dict, cli_tags: list, toolchain: str,
         "project": project,
         "built_at": resolve_timestamp(repo, dirty),
         "commit": git_output(repo, "rev-parse", "--short", "HEAD"),
-        "branch": git_output(repo, "rev-parse", "--abbrev-ref", "HEAD"),
+        "branch": resolve_branch(repo, branch_override),
         "version": version or None,
         "origin": "ci" if os.getenv("CI") else "local",
         "dirty": dirty,
