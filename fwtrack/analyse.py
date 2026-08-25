@@ -31,28 +31,22 @@ def parse_args():
     return parser.parse_args()
 
 
-def merge_intervals(intervals: list) -> list:
-    """Collapse overlapping [start, end) ranges so nothing is counted twice."""
-    merged = []
-    for start, end in sorted(intervals):
-        if merged and start <= merged[-1][1]:
-            merged[-1][1] = max(merged[-1][1], end)
-        else:
-            merged.append([start, end])
-
-    return merged
-
-
 def compute_memory_usage(map_regions_info: dict, segments: list) -> dict:
     """Charge every loadable segment to the regions its addresses fall into.
 
     A segment occupies filesz bytes at its load address and memsz bytes at its
-    run address. For flash-resident code the two ranges coincide, so the result
-    is a union rather than a sum -- adding them would double count. For .data
-    they differ, and the union charges the initialiser to flash and the runtime
+    run address. For flash-resident code the two coincide; for .data they
+    differ, which is how an initialiser gets charged to flash and the runtime
     copy to RAM without anyone naming either region.
+
+    Usage is measured from the start of the region to the far end of the last
+    thing in it, rather than by adding up the pieces. That is what the linker
+    reports, because that is what it decides overflow on: the alignment gap
+    before the first section is space nothing else can use. Adding up the pieces
+    instead gives a slightly smaller number that disagrees with the figure
+    already printed by every build.
     """
-    claimed = {name: [] for name in map_regions_info}
+    reach = {name: 0 for name in map_regions_info}
 
     def claim(start: int, size: int) -> None:
         if size <= 0:
@@ -63,18 +57,15 @@ def compute_memory_usage(map_regions_info: dict, segments: list) -> dict:
             reg_start = region["origin"]
             reg_end = reg_start + region["length"]
 
-            overlap_start = max(start, reg_start)
-            overlap_end = min(end, reg_end)
-            if overlap_start < overlap_end:
-                claimed[name].append((overlap_start, overlap_end))
+            if start < reg_end and end > reg_start:
+                reach[name] = max(reach[name], min(end, reg_end) - reg_start)
 
     for segment in segments:
         claim(segment["paddr"], segment["filesz"])  # stored in the image
         claim(segment["vaddr"], segment["memsz"])  # occupied at run time
 
     result = {}
-    for region, intervals in claimed.items():
-        used = sum(end - start for start, end in merge_intervals(intervals))
+    for region, used in reach.items():
         total = map_regions_info[region]["length"]
         result[region] = {
             "origin": map_regions_info[region]["origin"],
