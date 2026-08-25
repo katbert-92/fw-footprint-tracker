@@ -134,6 +134,20 @@ def resolve_branch(repo: Path, override: str | None = None) -> str:
     return DETACHED
 
 
+ORIGIN_ENV = "FWTRACK_ORIGIN"
+
+
+def resolve_origin(override: str | None = None) -> str:
+    """What kind of run produced this build.
+
+    Defaults to telling a build server apart from someone's machine, which is
+    the distinction that always exists. A pipeline that wants finer labels --
+    merge request against nightly against release -- sets FWTRACK_ORIGIN, and
+    they become values of the dashboard filter without any change here.
+    """
+    return override or os.getenv(ORIGIN_ENV) or ("ci" if os.getenv("CI") else "local")
+
+
 def resolve_author(repo: Path, override: str | None = None) -> str | None:
     """Who wrote the commit this build came from.
 
@@ -169,7 +183,8 @@ def build_record(meta: dict, config: dict, cli_tags: list, toolchain: str,
                  repo: Path, project_override: str | None = None,
                  version_override: str | None = None,
                  branch_override: str | None = None,
-                 author_override: str | None = None) -> dict:
+                 author_override: str | None = None,
+                 origin_override: str | None = None) -> dict:
     """Everything about a build except the numbers.
 
     Only the tags come from the project's metadata file; the rest is read from
@@ -193,7 +208,7 @@ def build_record(meta: dict, config: dict, cli_tags: list, toolchain: str,
         "commit": git_output(repo, "rev-parse", "--short", "HEAD"),
         "branch": resolve_branch(repo, branch_override),
         "version": version or None,
-        "origin": "ci" if os.getenv("CI") else "local",
+        "origin": resolve_origin(origin_override),
         "dirty": dirty,
         "author": resolve_author(repo, author_override),
         "toolchain": toolchain or None,

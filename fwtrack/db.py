@@ -53,24 +53,26 @@ ON CONFLICT (project, region) DO UPDATE
 """
 
 
-def record(build: dict, regions: list) -> int | None:
-    """Store one build, whichever way this environment is set up for.
+def record(build: dict, regions: list, url=None, token=None, dsn=None) -> int | None:
+    """Store one build, over HTTP if a URL is known and straight to the database otherwise.
 
-    A build runner is given a URL and a token; anything with direct access to
-    the database is given a DSN. Callers do not need to know which.
+    Every setting can be passed in. Nothing here insists on environment
+    variables, let alone a .env file: a caller holding its secrets in a vault,
+    a CI variable or a config of its own passes them as arguments and none of
+    the fallbacks below apply.
     """
-    url = os.getenv(URL_ENV)
+    url = url or os.getenv(URL_ENV)
     if url:
-        return post(url, build, regions)
+        return post(url, build, regions, token)
 
-    with connect() as conn:
+    with connect(dsn) as conn:
         return write_build(conn, build, regions)
 
 
-def post(url: str, build: dict, regions: list) -> int | None:
-    token = os.getenv(TOKEN_ENV)
+def post(url: str, build: dict, regions: list, token: str | None = None) -> int | None:
+    token = token or os.getenv(TOKEN_ENV)
     if not token:
-        raise RuntimeError(f"{TOKEN_ENV} must be set when {URL_ENV} is used")
+        raise RuntimeError(f"Pass token=, or set {TOKEN_ENV}, to post to {url}")
 
     payload = json.dumps(
         {"build": build, "regions": regions},
@@ -107,6 +109,9 @@ def get_dsn() -> str:
 
 def connect(dsn: str | None = None) -> psycopg.Connection:
     return psycopg.connect(dsn or get_dsn())
+
+
+
 
 
 def write_build(conn: psycopg.Connection, build: dict, regions: list, budgets: bool = True) -> int:

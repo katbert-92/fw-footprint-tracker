@@ -6,13 +6,18 @@
 SHELL := /bin/bash
 COMPOSE := docker compose
 
-.PHONY: up down logs ps env token restart
+.PHONY: up update down logs ps env token restart
 
 ## Start everything, generating secrets on first run
 up: env
 	$(COMPOSE) up -d --build
 	@echo
 	@$(MAKE) --no-print-directory token
+
+## Pull a new version and restart. .env is gitignored, so it survives.
+update:
+	git pull
+	@$(MAKE) --no-print-directory up
 
 ## Create .env, or add whatever keys a newer version needs
 env:

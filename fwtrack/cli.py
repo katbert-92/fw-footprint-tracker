@@ -45,6 +45,10 @@ def parse_args():
     )
     parser.add_argument("--author", help="Commit author, overriding what git reports")
     parser.add_argument(
+        "--origin",
+        help="What kind of run this is: ci, local, merge-request, nightly, release, ...",
+    )
+    parser.add_argument(
         "-o", "--output", type=Path, help="Also write the analysis to this JSON file"
     )
     parser.add_argument(
@@ -71,10 +75,15 @@ def run(
     version: str | None = None,
     branch: str | None = None,
     author: str | None = None,
+    origin: str | None = None,
     tags: list | None = None,
     repo: Path | str = ".",
     output: Path | str | None = None,
     dry_run: bool = False,
+    url: str | None = None,
+    token: str | None = None,
+    dsn: str | None = None,
+    read_dotenv: bool = True,
 ) -> int | None:
     """Analyse one build and record it. Returns the build id, or None if not recorded.
 
@@ -82,11 +91,13 @@ def run(
     Python: calling this once per variant records each one, where a single
     invocation from the shell would only ever see the last.
     """
-    # Loaded here rather than only in main(): a build system calling this
-    # directly should not have to know that configuration lives in .env.
+    # A convenience, not a requirement: .env is read if one is there, and every
+    # setting it might hold can be passed as an argument instead. Pass
+    # read_dotenv=False to ignore the file entirely.
     # usecwd, because once installed this file sits in the package directory
     # rather than in the project being built.
-    load_dotenv(find_dotenv(usecwd=True))
+    if read_dotenv:
+        load_dotenv(find_dotenv(usecwd=True))
 
     config_path = find_config(Path(config) if config else None)
     settings = load_config(config_path)
@@ -125,6 +136,7 @@ def run(
         version,
         branch,
         author,
+        origin,
     )
     regions = region_records(analysis["regions"], settings)
 
@@ -133,7 +145,7 @@ def run(
         logger.info(f"Dry run: {len(regions)} regions not written")
         return None
 
-    return db.record(build, regions)
+    return db.record(build, regions, url=url, token=token, dsn=dsn)
 
 
 def main():
@@ -150,6 +162,7 @@ def main():
             version=args.version,
             branch=args.branch,
             author=args.author,
+            origin=args.origin,
             tags=args.tag,
             repo=args.repo,
             output=args.output,
