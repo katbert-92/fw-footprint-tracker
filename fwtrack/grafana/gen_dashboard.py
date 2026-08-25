@@ -125,6 +125,9 @@ def build_variables(project: str, variant_tags: list, datasource_uid: str) -> li
     variables += [
         query_variable("branch", "Branch", queries.simple_values("branch"), multi=True),
         query_variable("origin", "Build origin", queries.simple_values("origin"), multi=True),
+        # Multiple choice, like the branch: being made to pick one person to see
+        # the chart at all would hide everyone else's work.
+        query_variable("author", "Author", queries.author_values(), multi=True),
         query_variable("area", "Memory area", queries.simple_values("area"), multi=True),
         query_variable("region", "Region", queries.simple_values("region"), multi=True),
     ]

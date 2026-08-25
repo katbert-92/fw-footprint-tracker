@@ -40,6 +40,7 @@ def _filters(variant_tags: list) -> str:
     lines += [
         "    AND branch IN (${branch:sqlstring})",
         "    AND origin IN (${origin:sqlstring})",
+        "    AND COALESCE(author, '(none)') IN (${author:sqlstring})",
         # Regions are filtered here rather than by clicking the legend, so the
         # choice sticks across panels and reloads. The capacity line follows
         # suit: the ceiling of what is on screen, not of what was left out.
@@ -141,6 +142,7 @@ def builds_table(variant_tags: list) -> str:
     return f"""SELECT built_at AS time,
        commit,
        branch,
+       author,
        version,
        area,
        region,
@@ -192,6 +194,17 @@ def variable_values(tag: str, depends_on: list) -> str:
         f"SELECT DISTINCT {_dimension(tag)} AS value\n"
         "FROM builds\n"
         f"WHERE {' AND '.join(conditions)}\n"
+        "ORDER BY 1"
+    )
+
+
+def author_values() -> str:
+    """Authors seen in the range, with builds that have none kept selectable."""
+    return (
+        "SELECT DISTINCT COALESCE(author, '(none)') AS value\n"
+        "FROM builds\n"
+        "WHERE project = '$project'\n"
+        "  AND $__timeFilter(built_at)\n"
         "ORDER BY 1"
     )
 

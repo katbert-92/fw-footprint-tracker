@@ -33,16 +33,11 @@ Ingest    http://localhost:8099
 Token     kZ8...
 ```
 
-Ports bind to `127.0.0.1`, for a host that already has a reverse proxy. Two
-other shapes are supported:
-
-| | |
-|---|---|
-| `BIND_ADDRESS=0.0.0.0` in `.env` | reach the services directly, no proxy, no TLS |
-| `FWTRACK_DOMAIN=... docker compose --profile proxy up -d` | run Caddy, which gets a certificate on its own |
+Ports bind to `127.0.0.1`, for a host that already has a reverse proxy. Set
+`BIND_ADDRESS=0.0.0.0` in `.env` to reach the services directly instead.
 
 The ingest token travels in a header, so anything reachable beyond a trusted
-network wants TLS.
+network wants a reverse proxy terminating TLS in front.
 
 ### What the three containers are
 
