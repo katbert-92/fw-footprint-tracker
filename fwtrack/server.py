@@ -45,8 +45,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _authorised(self) -> bool:
         expected = self.server.token
-        header = self.headers.get("Authorization", "")
-        supplied = header[7:] if header.startswith("Bearer ") else ""
+        header = self.headers.get("Authorization", "").strip()
+        supplied = header[7:].strip() if header.startswith("Bearer ") else ""
         # Constant time: a plain == leaks the token one character at a time to
         # anyone willing to measure.
         return secrets.compare_digest(supplied, expected)
@@ -101,7 +101,9 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     setup_logging()
 
-    token = os.getenv(TOKEN_ENV)
+    # Stripped for the same reason the client strips it: a secret that travelled
+    # through a settings page may well arrive with a newline attached.
+    token = (os.getenv(TOKEN_ENV) or "").strip()
     if not token:
         raise SystemExit(f"{TOKEN_ENV} must be set")
 

@@ -61,7 +61,10 @@ def record(build: dict, regions: list, url=None, token=None, dsn=None) -> int | 
     a CI variable or a config of its own passes them as arguments and none of
     the fallbacks below apply.
     """
-    url = url or os.getenv(URL_ENV)
+    # Stripped: a secret pasted into a CI settings page routinely picks up a
+    # trailing newline, and the only sign of it is an opaque "Invalid header
+    # value" from deep inside urllib.
+    url = (url or os.getenv(URL_ENV) or "").strip()
     if url:
         return post(url, build, regions, token)
 
@@ -70,7 +73,7 @@ def record(build: dict, regions: list, url=None, token=None, dsn=None) -> int | 
 
 
 def post(url: str, build: dict, regions: list, token: str | None = None) -> int | None:
-    token = token or os.getenv(TOKEN_ENV)
+    token = (token or os.getenv(TOKEN_ENV) or "").strip()
     if not token:
         raise RuntimeError(f"Pass token=, or set {TOKEN_ENV}, to post to {url}")
 
@@ -100,7 +103,7 @@ def post(url: str, build: dict, regions: list, token: str | None = None) -> int 
 
 
 def get_dsn() -> str:
-    dsn = os.getenv(DSN_ENV)
+    dsn = (os.getenv(DSN_ENV) or "").strip()
     if not dsn:
         raise RuntimeError(f"{DSN_ENV} is not set (see .env.example)")
 
