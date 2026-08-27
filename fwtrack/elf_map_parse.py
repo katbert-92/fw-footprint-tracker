@@ -32,7 +32,7 @@ class MapParser:
         except FileNotFoundError:
             logger.error(f"Map file not found: {self.map_file_path}")
             sys.exit(1)
-        except IOError as e:
+        except OSError as e:
             logger.error(f"Error reading file {self.map_file_path}: {e}")
             sys.exit(1)
 
@@ -90,7 +90,7 @@ class ElfParser:
         except FileNotFoundError:
             logger.error(f"File {self.elf_path} not found")
             sys.exit(1)
-        except IOError as e:
+        except OSError as e:
             logger.error(f"Error reading file {self.elf_path}: {e}")
             sys.exit(1)
 

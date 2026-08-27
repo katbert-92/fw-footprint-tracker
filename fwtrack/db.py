@@ -114,9 +114,6 @@ def connect(dsn: str | None = None) -> psycopg.Connection:
     return psycopg.connect(dsn or get_dsn())
 
 
-
-
-
 def write_build(conn: psycopg.Connection, build: dict, regions: list, budgets: bool = True) -> int:
     """Store one build and its regions, replacing any previous run of the same build.
 

@@ -34,7 +34,8 @@ def parse_args():
     parser.add_argument(
         "--apply-schema",
         action="store_true",
-        help=f"Apply {SCHEMA_FILE} if the tables are missing (the bundled container does this itself)",
+        help=f"Apply {SCHEMA_FILE} if the tables are missing "
+        "(the bundled container does this itself)",
     )
     parser.add_argument(
         "--schema-file", type=Path, default=SCHEMA_FILE, help="Schema file to apply"
@@ -57,7 +58,7 @@ def check_database(apply_schema: bool, schema_file: Path) -> bool:
         if not db.schema_ready(conn):
             if not apply_schema:
                 print(f"{FAIL} schema: tables are missing")
-                print(f"     Apply it with: fwtrack-init --apply-schema")
+                print("     Apply it with: fwtrack-init --apply-schema")
                 return False
 
             if not schema_file.is_file():

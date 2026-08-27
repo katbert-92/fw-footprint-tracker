@@ -28,7 +28,8 @@ def _threshold_steps(values: list, base: str = "green") -> dict:
     """Grafana colour bands from a list of levels: [85, 90, 99] gives four."""
     steps = [{"color": base, "value": None}]
     for i, value in enumerate(values):
-        steps.append({"color": THRESHOLD_COLOURS[min(i, len(THRESHOLD_COLOURS) - 1)], "value": value})
+        colour = THRESHOLD_COLOURS[min(i, len(THRESHOLD_COLOURS) - 1)]
+        steps.append({"color": colour, "value": value})
 
     return {"mode": "absolute", "steps": steps}
 
@@ -223,7 +224,7 @@ def timeseries_trend(variant_tags: list) -> dict:
     }
 
 
-def _bars(title: str, sql: str, grid: dict, show_value: str = "never") -> dict:
+def _bars(title: str, sql: str, grid: dict) -> dict:
     """Bars over time rather than a bar chart panel.
 
     The bar chart wants one column per series, which has to be written into the
@@ -271,5 +272,4 @@ def barchart_delta(variant_tags: list) -> dict:
         "Delta vs previous build — $area",
         queries.delta_by_build(variant_tags),
         {"h": 8, "w": 24, "x": 0, "y": 32},
-        show_value="auto",
     )

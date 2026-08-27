@@ -11,7 +11,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
@@ -40,7 +40,9 @@ def parse_args():
     parser.add_argument(
         "-i", "--input", type=Path, required=True, help="Region usage JSON from fwtrack-analyse"
     )
-    parser.add_argument("-m", "--meta", type=Path, help="Build metadata JSON, if the project has one")
+    parser.add_argument(
+        "-m", "--meta", type=Path, help="Build metadata JSON, if the project has one"
+    )
     parser.add_argument(
         "-c", "--config", type=Path, default=DEFAULT_CONFIG_FILE, help="Tracking config"
     )
@@ -69,7 +71,7 @@ def read_json(path: Path) -> dict:
     except FileNotFoundError:
         logger.error(f"File not found: {path}")
         sys.exit(1)
-    except (IOError, json.JSONDecodeError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         logger.error(f"Error reading {path}: {e}")
         sys.exit(1)
 
@@ -173,10 +175,10 @@ def resolve_timestamp(repo: Path, dirty: bool):
     if not dirty:
         commit_ts = git_output(repo, "show", "-s", "--format=%ct", "HEAD")
         if commit_ts.isdigit():
-            return datetime.fromtimestamp(int(commit_ts), timezone.utc)
+            return datetime.fromtimestamp(int(commit_ts), UTC)
         logger.warning("Could not read commit timestamp, falling back to the current time")
 
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def build_record(meta: dict, config: dict, cli_tags: list, toolchain: str,

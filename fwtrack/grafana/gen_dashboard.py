@@ -6,8 +6,9 @@ switch it. Permissions in Grafana are granted on folders, so each project gets
 its own dashboard in its own folder with the project baked in as a constant.
 
 Nothing about the project is hardcoded here. The dimensions builds are split by,
-the memory areas and the warning levels all come out of the database, so a project that calls its dimensions board and build_type
-works exactly like one that calls them cfg and bsp.
+the memory areas and the warning levels all come out of the database, so a
+project that calls its dimensions board and build_type works exactly like one
+that calls them cfg and bsp.
 
     fwtrack-dash --project dmd                 # write JSON for provisioning
     fwtrack-dash --project dmd --push          # upload into a running Grafana
@@ -255,7 +256,9 @@ def main():
     out_dir = args.out_dir / args.project
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"fwtrack-{args.project}.json"
-    out_path.write_text(json.dumps(dashboard, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    out_path.write_text(
+        json.dumps(dashboard, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     logger.info(f"Written {out_path}")
 
     if args.push:

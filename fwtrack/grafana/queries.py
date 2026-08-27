@@ -55,9 +55,6 @@ def trend(variant_tags: list) -> str:
 
     branch belongs in the series name: without it points from different branches
     merge into a single line that jumps between them.
-
-    branch belongs in the series name: without it points from different branches
-    merge into a single line that jumps between them.
     """
     return f"""SELECT built_at AS time,
        used AS value,
