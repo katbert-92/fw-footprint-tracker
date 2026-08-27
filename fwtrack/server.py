@@ -16,7 +16,7 @@ import secrets
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import db
+from . import __version__, db
 from .log import get_logger, setup_logging
 
 logger = get_logger(__name__)
@@ -53,7 +53,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.rstrip("/") == "/ingest/health":
-            self._reply(200, {"status": "ok"})
+            self._reply(200, {"status": "ok", "version": __version__})
         else:
             self._reply(404, {"error": "not found"})
 
@@ -111,7 +111,7 @@ def main():
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     server.token = token
 
-    logger.info(f"Listening on :{port}")
+    logger.info(f"fwtrack {__version__} listening on :{port}")
     server.serve_forever()
 
 

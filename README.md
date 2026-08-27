@@ -25,7 +25,8 @@ cd fw-footprint-tracker && make up
 ```
 
 Generates secrets, picks free ports, prints the endpoint and token. Later:
-`make update` (pulls and restarts; `.env` is gitignored and survives).
+`make update` (pulls and restarts; `.env` is gitignored and survives). It follows
+whatever ref is checked out — see [Versions](#versions).
 
 Ports bind to `127.0.0.1` for a host with a reverse proxy. `BIND_ADDRESS=0.0.0.0`
 reaches them directly instead.
@@ -213,6 +214,22 @@ changed needs `DROP VIEW` — `CREATE OR REPLACE` cannot reorder them.
 ```bash
 docker compose exec -T postgres pg_dump -U fwtrack fwtrack | gzip > fwtrack-$(date +%F).sql.gz
 ```
+
+## Versions
+
+Releases are tagged on `main`; `dev` is where work lands. Pin both sides to the
+same tag: a branch moves under you, a tag does not.
+
+| | |
+|---|---|
+| project | `pip install git+https://github.com/katbert-92/fw-footprint-tracker@v0.1.0` |
+| server | `git checkout v0.1.0 && make up` |
+
+`curl http://<host>:8099/ingest/health` reports the version a server is running,
+which is the one thing ssh would otherwise be needed for.
+
+Cutting a release: merge `dev` into `main`, then `make release VERSION=0.1.1`
+and push what it prints.
 
 ## Requirements
 

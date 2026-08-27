@@ -8,6 +8,7 @@ import urllib.request
 import psycopg
 from psycopg.types.json import Jsonb
 
+from . import __version__
 from .log import get_logger
 
 logger = get_logger(__name__)
@@ -15,7 +16,7 @@ logger = get_logger(__name__)
 DSN_ENV = "FWTRACK_DSN"
 URL_ENV = "FWTRACK_URL"
 TOKEN_ENV = "FWTRACK_INGEST_TOKEN"
-USER_AGENT = "fw-footprint-tracker/1.0"
+USER_AGENT = f"fw-footprint-tracker/{__version__}"
 
 INSERT_BUILD = """
 INSERT INTO builds (project, built_at, commit, branch, version, origin, dirty,

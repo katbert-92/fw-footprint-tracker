@@ -25,7 +25,7 @@ from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
 
-from .. import db
+from .. import __version__, db
 from ..log import get_logger, setup_logging
 from . import panels, queries
 
@@ -36,7 +36,7 @@ DEFAULT_OUT_DIR = Path("deploy/grafana/dashboards")
 
 # A reverse proxy in front of Grafana may reject the default Python-urllib
 # user agent outright, which surfaces as an opaque 403.
-USER_AGENT = "fw-footprint-tracker/1.0"
+USER_AGENT = f"fw-footprint-tracker/{__version__}"
 
 # Used when the project has no data yet, so that a dashboard still generates.
 FALLBACK_VARIANT_TAGS = ["type", "tag", "cfg"]
