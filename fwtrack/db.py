@@ -184,14 +184,39 @@ def write_build(conn: psycopg.Connection, build: dict, regions: list, budgets: b
     Both statements upsert so that re-running CI on the same commit refreshes the
     numbers instead of piling up duplicate rows.
     """
+    # Spelled out rather than splatted: everything below that uses .get() is
+    # optional at the endpoint, and a caller posting its own JSON should not get
+    # a 500 for leaving one out.
     with conn.cursor() as cur:
-        cur.execute(INSERT_BUILD, {**build, "tags": Jsonb(build["tags"])})
+        cur.execute(
+            INSERT_BUILD,
+            {
+                "project": build["project"],
+                "built_at": build["built_at"],
+                "commit": build["commit"],
+                "branch": build["branch"],
+                "origin": build["origin"],
+                "dirty": build["dirty"],
+                "version": build.get("version"),
+                "author": build.get("author"),
+                "toolchain": build.get("toolchain"),
+                "tags": Jsonb(build.get("tags") or {}),
+            },
+        )
         build_id = cur.fetchone()[0]
 
         cur.executemany(
             INSERT_USAGE,
             [
-                {k: v for k, v in {"build_id": build_id, **region}.items() if k != "thresholds"}
+                {
+                    "build_id": build_id,
+                    "region": region["region"],
+                    "area": region["area"],
+                    "used": region["used"],
+                    # Nullable in the schema: history imported from a tracker
+                    # that never recorded region sizes has no honest value here.
+                    "total": region.get("total"),
+                }
                 for region in regions
             ],
         )
@@ -208,7 +233,10 @@ def write_build(conn: psycopg.Connection, build: dict, regions: list, budgets: b
                     "thresholds": region["thresholds"],
                 }
                 for region in regions
-                if region["thresholds"]
+                # Optional: a caller posting straight to the endpoint need not
+                # have a threshold policy, and a region without one keeps
+                # whatever budget was set for it before.
+                if region.get("thresholds")
             ],
         )
 
