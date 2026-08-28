@@ -159,11 +159,8 @@ def annotation_toolchain(variant_tags: list) -> dict:
     }
 
 
-def build_dashboard(project: str, variant_tags: list, areas: list,
-                    limits: dict, datasource_uid: str) -> dict:
-    # Repeated panels split the top row evenly between the memory areas.
-    width = max(24 // max(len(areas), 1), 3)
-
+def build_dashboard(project: str, variant_tags: list, limits: dict,
+                    datasource_uid: str) -> dict:
     return {
         "uid": f"fwtrack-{project}",
         "title": "Firmware memory",
@@ -185,9 +182,7 @@ def build_dashboard(project: str, variant_tags: list, areas: list,
         "templating": {"list": build_variables(project, variant_tags, datasource_uid)},
         "annotations": {"list": [annotation_toolchain(variant_tags)]},
         "panels": [
-            panels.stat_last_delta(variant_tags, width),
-            panels.bargauge_usage(variant_tags, width, limits),
-            panels.table_builds(variant_tags),
+            panels.bargauge_usage(variant_tags, limits),
             panels.row_per_area(),
             panels.timeseries_trend(variant_tags),
             panels.barchart_by_build(variant_tags),
@@ -330,7 +325,7 @@ def generate(conn, project: str, args) -> None:
 
     logger.info(f"{project}: dimensions {', '.join(variant_tags)}; areas {', '.join(areas)}")
 
-    dashboard = build_dashboard(project, variant_tags, areas, limits, args.datasource_uid)
+    dashboard = build_dashboard(project, variant_tags, limits, args.datasource_uid)
     activity = build_activity_dashboard(project, args.datasource_uid)
 
     # One directory per project: the dashboard provider turns directories into

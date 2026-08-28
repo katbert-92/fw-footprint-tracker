@@ -34,43 +34,7 @@ def _threshold_steps(values: list, base: str = "green") -> dict:
     return {"mode": "absolute", "steps": steps}
 
 
-def stat_last_delta(variant_tags: list, width: int) -> dict:
-    return {
-        "type": "stat",
-        "title": "Last build delta — $area",
-        "datasource": DS,
-        "gridPos": {"h": 5, "w": width, "x": 0, "y": 0},
-        "repeat": "area",
-        "repeatDirection": "h",
-        "targets": _target(queries.last_delta(variant_tags)),
-        "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
-            "orientation": "horizontal",
-            "textMode": "value_and_name",
-            "colorMode": "value",
-            "graphMode": "none",
-        },
-        "fieldConfig": {
-            "defaults": {
-                "unit": "bytes",
-                "decimals": 0,
-                "color": {"mode": "thresholds"},
-                # Growth is red, shrinking is green, unchanged is neutral.
-                "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                        {"color": "green", "value": None},
-                        {"color": "text", "value": 0},
-                        {"color": "red", "value": 1},
-                    ],
-                },
-            },
-            "overrides": [],
-        },
-    }
-
-
-def bargauge_usage(variant_tags: list, width: int, region_limits: dict) -> dict:
+def bargauge_usage(variant_tags: list, region_limits: dict) -> dict:
     overrides = [
         {
             "matcher": {"id": "byName", "options": region},
@@ -84,7 +48,7 @@ def bargauge_usage(variant_tags: list, width: int, region_limits: dict) -> dict:
         "type": "bargauge",
         "title": "Region usage — $area",
         "datasource": DS,
-        "gridPos": {"h": 8, "w": width, "x": 0, "y": 5},
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
         "repeat": "area",
         "repeatDirection": "h",
         "targets": _target(queries.usage_gauge(variant_tags)),
@@ -108,63 +72,14 @@ def bargauge_usage(variant_tags: list, width: int, region_limits: dict) -> dict:
     }
 
 
-def table_builds(variant_tags: list) -> dict:
-    def rename(column: str, label: str) -> dict:
-        return {
-            "matcher": {"id": "byName", "options": column},
-            "properties": [{"id": "displayName", "value": label}],
-        }
-
-    return {
-        "type": "table",
-        "title": "Builds: date, commit, region, size",
-        "datasource": DS,
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 13},
-        "targets": _target(queries.builds_table(variant_tags), table=True),
-        "options": {"showHeader": True, "sortBy": [{"displayName": "Date", "desc": True}]},
-        "fieldConfig": {
-            "defaults": {"custom": {"align": "auto", "filterable": True}},
-            "overrides": [
-                rename("time", "Date"),
-                rename("commit", "Commit"),
-                rename("branch", "Branch"),
-                rename("author", "Author"),
-                rename("version", "Version"),
-                rename("dirty", "Uncommitted"),
-                rename("area", "Area"),
-                rename("region", "Region"),
-                {
-                    "matcher": {"id": "byName", "options": "used"},
-                    "properties": [
-                        {"id": "unit", "value": "bytes"},
-                        {"id": "displayName", "value": "Used"},
-                    ],
-                },
-                {
-                    "matcher": {"id": "byName", "options": "pcnt"},
-                    "properties": [
-                        {"id": "unit", "value": "percent"},
-                        {"id": "decimals", "value": 1},
-                        {"id": "min", "value": 0},
-                        {"id": "max", "value": 100},
-                        {"id": "displayName", "value": "Usage"},
-                        {
-                            "id": "custom.cellOptions",
-                            "value": {"type": "gauge", "mode": "gradient"},
-                        },
-                    ],
-                },
-            ],
-        },
-    }
-
-
 def row_per_area() -> dict:
     return {
         "type": "row",
         "title": "Memory area: $area",
-        "gridPos": {"h": 1, "w": 24, "x": 0, "y": 21},
-        "collapsed": False,
+        "gridPos": {"h": 1, "w": 24, "x": 0, "y": 8},
+        # Collapsed: the gauges above answer "is anything running out", and the
+        # history is opened when the answer is yes.
+        "collapsed": True,
         "repeat": "area",
         "repeatDirection": "v",
         "panels": [],
@@ -176,7 +91,7 @@ def timeseries_trend(variant_tags: list) -> dict:
         "type": "timeseries",
         "title": "Usage over time — $area",
         "datasource": DS,
-        "gridPos": {"h": 10, "w": 14, "x": 0, "y": 22},
+        "gridPos": {"h": 10, "w": 14, "x": 0, "y": 9},
         "targets": _target(queries.trend(variant_tags))
         + _target(queries.area_capacity(variant_tags), ref="B"),
         "options": {
@@ -184,7 +99,12 @@ def timeseries_trend(variant_tags: list) -> dict:
                 "displayMode": "table",
                 "placement": "right",
                 "showLegend": True,
-                "calcs": ["last", "min", "max"],
+                # lastNotNull, not last: two branches share one time axis, so a
+                # branch with no build at the newest timestamp has a null there
+                # and "last" would show it an empty column.
+                "calcs": ["lastNotNull", "min", "max"],
+                "sortBy": "Name",
+                "sortDesc": True,
             },
             "tooltip": {"mode": "multi", "sort": "desc"},
         },
@@ -194,16 +114,17 @@ def timeseries_trend(variant_tags: list) -> dict:
                 # split the series onto separate axes, where two lines drawn at
                 # different scales look parallel however far apart they are.
                 "unit": "bytes",
-                "min": 0,
                 "custom": {
                     "drawStyle": "line",
                     "lineWidth": 2,
-                    "pointSize": 6,
+                    "pointSize": 5,
                     "showPoints": "always",
-                    "spanNulls": True,
-                    "fillOpacity": 25,
-                    "lineInterpolation": "stepAfter",
-                    "stacking": {"mode": "normal", "group": "A"},
+                    "spanNulls": False,
+                    "fillOpacity": 36,
+                    "gradientMode": "opacity",
+                    "lineInterpolation": "smooth",
+                    "lineStyle": {"fill": "dot", "dash": [0, 20]},
+                    "stacking": {"mode": "none", "group": "A"},
                 },
             },
             "overrides": [
@@ -211,10 +132,10 @@ def timeseries_trend(variant_tags: list) -> dict:
                     "matcher": {"id": "byName", "options": "Capacity"},
                     "properties": [
                         {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}},
-                        {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [10, 10]}},
+                        {"id": "custom.lineStyle", "value": {"fill": "dot", "dash": [0, 10]}},
                         {"id": "custom.fillOpacity", "value": 0},
                         {"id": "custom.lineWidth", "value": 2},
-                        {"id": "custom.showPoints", "value": "never"},
+                        {"id": "custom.showPoints", "value": "always"},
                         # Kept out of the stack: it is the ceiling the stack is
                         # measured against, not another slice of it.
                         {"id": "custom.stacking", "value": {"mode": "none"}},
@@ -264,7 +185,7 @@ def barchart_by_build(variant_tags: list) -> dict:
     return _bars(
         "By build — $area",
         queries.by_build(variant_tags),
-        {"h": 10, "w": 10, "x": 14, "y": 22},
+        {"h": 10, "w": 10, "x": 14, "y": 9},
     )
 
 
@@ -272,7 +193,7 @@ def barchart_delta(variant_tags: list) -> dict:
     return _bars(
         "Delta vs previous build — $area",
         queries.delta_by_build(variant_tags),
-        {"h": 8, "w": 24, "x": 0, "y": 32},
+        {"h": 8, "w": 24, "x": 0, "y": 19},
     )
 
 

@@ -112,29 +112,6 @@ def _delta_cte(variant_tags: list, area_filter: bool = True) -> str:
 )"""
 
 
-def last_delta(variant_tags: list) -> str:
-    """What the most recent build cost, one value per region.
-
-    Deliberately the latest build only, rather than one series per branch: the
-    panel answers "what did the build that just landed cost", and fanning it out
-    across branches turns three readable numbers into a dozen unreadable ones.
-    The branch is implied -- it is whichever one that build was on.
-    """
-    return f"""{_delta_cte(variant_tags)},
-latest AS (
-  SELECT max(built_at) AS built_at
-  FROM deltas
-  WHERE delta IS NOT NULL
-)
-SELECT deltas.built_at AS time,
-       deltas.delta AS value,
-       deltas.region AS metric
-FROM deltas
-JOIN latest ON deltas.built_at = latest.built_at
-WHERE deltas.delta IS NOT NULL
-ORDER BY 1"""
-
-
 def toolchain_changes(variant_tags: list) -> str:
     """When the compiler changed, as a Grafana annotation.
 
@@ -165,22 +142,6 @@ WHERE previous IS DISTINCT FROM toolchain
   AND previous IS NOT NULL
   AND $__timeFilter(built_at)
 ORDER BY 1"""
-
-
-def builds_table(variant_tags: list) -> str:
-    return f"""SELECT built_at AS time,
-       commit,
-       branch,
-       author,
-       version,
-       dirty,
-       area,
-       region,
-       used,
-       pcnt
-FROM memory_points
-{_filters(variant_tags)}
-ORDER BY built_at DESC"""
 
 
 def by_build(variant_tags: list) -> str:

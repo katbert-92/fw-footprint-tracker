@@ -209,12 +209,14 @@ private copy; port anything worth keeping back into the generator.
 
 | Panel | |
 | --- | --- |
-| Last build delta | what the newest build cost, per region |
 | Region usage | how full each region is, against its thresholds |
-| Builds | date, commit, branch, author, version, region, size |
-| Usage over time | stacked bytes per region, with a capacity line |
+| Usage over time | bytes per region and branch, with a capacity line |
 | By build | bytes per region per build |
 | Delta vs previous | change against the previous build **on the same branch** |
+
+The gauges are the front page; the history sits in a collapsed row below them,
+because the first question is "is anything running out", and only the answer
+"yes" leads to the second.
 
 Every time panel is marked where the compiler changed — the answer to "all
 regions grew at once, did we change toolchain?" belongs on the chart the jump is
