@@ -57,6 +57,17 @@ CREATE TABLE IF NOT EXISTS region_budgets (
     PRIMARY KEY (project, region)
 );
 
+-- Dashboard policy that belongs to a project rather than to any build, kept
+-- here for the same reason region_budgets is: it outlives the checkout it was
+-- set from, and pg_dump carries it along with the data it describes.
+CREATE TABLE IF NOT EXISTS project_settings (
+    project      TEXT        PRIMARY KEY,
+    -- Order of the dashboard's filters, each narrowing the next. NULL means
+    -- whatever order the dimensions come out of the database in.
+    variant_tags TEXT[],
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Flattens the join out of every dashboard query and keeps derived values in
 -- one place. Percentages are computed on read: storing them would just be a
 -- second copy of used/total that can drift.

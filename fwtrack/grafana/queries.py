@@ -135,12 +135,45 @@ WHERE deltas.delta IS NOT NULL
 ORDER BY 1"""
 
 
+def toolchain_changes(variant_tags: list) -> str:
+    """When the compiler changed, as a Grafana annotation.
+
+    A value that changes twice a year has no business being a column on a
+    thousand rows. As a mark on the time axis it answers the question it is
+    actually asked -- "everything grew here, did we change compiler?" -- on the
+    chart where the jump is seen, rather than in a table somewhere else.
+
+    LAG runs over the whole history and the time filter is applied after it, so
+    a change is still reported when the build before it falls outside the range.
+    Partitioned by variant: different platforms may well be built with different
+    toolchains, and ordering those into one sequence would mark every build as a
+    change.
+    """
+    conditions = ["project = '$project'", "toolchain IS NOT NULL"]
+    conditions += [f"{_dimension(tag)} = '${tag}'" for tag in variant_tags]
+
+    return f"""SELECT built_at AS time,
+       'Toolchain: ' || toolchain AS text
+FROM (
+  SELECT built_at,
+         toolchain,
+         LAG(toolchain) OVER (ORDER BY built_at) AS previous
+  FROM builds
+  WHERE {" AND ".join(conditions)}
+) changes
+WHERE previous IS DISTINCT FROM toolchain
+  AND previous IS NOT NULL
+  AND $__timeFilter(built_at)
+ORDER BY 1"""
+
+
 def builds_table(variant_tags: list) -> str:
     return f"""SELECT built_at AS time,
        commit,
        branch,
        author,
        version,
+       dirty,
        area,
        region,
        used,
@@ -221,3 +254,65 @@ def simple_values(column: str, table: str = "memory_points") -> str:
         "  AND $__timeFilter(built_at)\n"
         "ORDER BY 1"
     )
+
+
+# ── Activity ────────────────────────────────────────────────────────────────
+#
+# A second dashboard, about the flow of builds rather than about memory: when
+# they happen, who makes them, what landed. Deliberately not filtered by the
+# variant dimensions -- the question here is "what is going on in this project",
+# and splitting it per build variant would answer a different one.
+
+ACTIVITY_FILTER = "WHERE project = '$project'\n  AND $__timeFilter(built_at)"
+
+
+def activity_totals() -> str:
+    """One row of counters for the stat panel."""
+    return f"""SELECT count(*)                  AS "Builds",
+       count(DISTINCT commit)         AS "Commits",
+       count(DISTINCT branch)         AS "Branches",
+       count(DISTINCT COALESCE(author, '(none)')) AS "Authors"
+FROM builds
+{ACTIVITY_FILTER}"""
+
+
+def builds_per_day() -> str:
+    return f"""SELECT date_trunc('day', built_at) AS time,
+       count(*) AS value,
+       'builds' AS metric
+FROM builds
+{ACTIVITY_FILTER}
+GROUP BY 1
+ORDER BY 1"""
+
+
+def builds_by_hour() -> str:
+    """Which hours of the day builds land in, local to the database."""
+    return f"""SELECT to_char(built_at, 'HH24') AS hour,
+       count(*) AS builds
+FROM builds
+{ACTIVITY_FILTER}
+GROUP BY 1
+ORDER BY 1"""
+
+
+def builds_by_weekday() -> str:
+    # Grouped by the number as well so the days come out in week order rather
+    # than alphabetically; a bar chart keeps the row order it is given.
+    return f"""SELECT to_char(built_at, 'Dy') AS day,
+       count(*) AS builds
+FROM builds
+{ACTIVITY_FILTER}
+GROUP BY 1, extract(isodow from built_at)
+ORDER BY extract(isodow from built_at)"""
+
+
+def builds_by(column: str, limit: int = 15) -> str:
+    """Who or what most of the builds come from."""
+    return f"""SELECT COALESCE({column}, '(none)') AS name,
+       count(*) AS builds
+FROM builds
+{ACTIVITY_FILTER}
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT {int(limit)}"""

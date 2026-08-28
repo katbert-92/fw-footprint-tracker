@@ -130,6 +130,7 @@ def table_builds(variant_tags: list) -> dict:
                 rename("branch", "Branch"),
                 rename("author", "Author"),
                 rename("version", "Version"),
+                rename("dirty", "Uncommitted"),
                 rename("area", "Area"),
                 rename("region", "Region"),
                 {
@@ -273,3 +274,140 @@ def barchart_delta(variant_tags: list) -> dict:
         queries.delta_by_build(variant_tags),
         {"h": 8, "w": 24, "x": 0, "y": 32},
     )
+
+
+# ── Activity dashboard ──────────────────────────────────────────────────────
+
+
+def _table(title: str, sql: str, grid: dict, overrides: list | None = None) -> dict:
+    return {
+        "type": "table",
+        "title": title,
+        "datasource": DS,
+        "gridPos": grid,
+        "targets": _target(sql, table=True),
+        "options": {"showHeader": True},
+        "fieldConfig": {
+            "defaults": {"custom": {"align": "auto", "filterable": True}},
+            "overrides": overrides or [],
+        },
+    }
+
+
+def _bars_by_category(title: str, sql: str, grid: dict) -> dict:
+    """Bar chart over a text column: hours, weekdays, names.
+
+    A barchart rather than a time series: the x axis here is a category, and the
+    order is the one the query returns.
+    """
+    return {
+        "type": "barchart",
+        "title": title,
+        "datasource": DS,
+        "gridPos": grid,
+        "targets": _target(sql, table=True),
+        "options": {
+            "orientation": "auto",
+            "showValue": "always",
+            "xTickLabelRotation": 0,
+            "barRadius": 0.1,
+            "barWidth": 0.83,
+            "legend": {"showLegend": False},
+            "tooltip": {"mode": "single"},
+        },
+        "fieldConfig": {
+            "defaults": {
+                "color": {"mode": "continuous-viridis"},
+                "custom": {
+                    "fillOpacity": 80,
+                    "lineWidth": 0,
+                    "axisSoftMin": 0,
+                    "gradientMode": "scheme",
+                },
+            },
+            "overrides": [],
+        },
+    }
+
+
+def stat_activity_totals() -> dict:
+    return {
+        "type": "stat",
+        "title": "Common",
+        "datasource": DS,
+        "gridPos": {"h": 7, "w": 24, "x": 0, "y": 0},
+        "targets": _target(queries.activity_totals(), table=True),
+        "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/.*/", "values": False},
+            "orientation": "vertical",
+            "justifyMode": "center",
+            "textMode": "auto",
+            "colorMode": "none",
+            "graphMode": "area",
+        },
+        "fieldConfig": {
+            "defaults": {
+                "decimals": 0,
+                "color": {"mode": "fixed", "fixedColor": "text"},
+            },
+            "overrides": [],
+        },
+    }
+
+
+def timeseries_builds_per_day() -> dict:
+    return {
+        "type": "timeseries",
+        "title": "Builds per day",
+        "datasource": DS,
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 7},
+        "targets": _target(queries.builds_per_day()),
+        "options": {
+            "legend": {"showLegend": True},
+            "tooltip": {"mode": "single"},
+        },
+        "fieldConfig": {
+            "defaults": {
+                "decimals": 0,
+                "color": {"mode": "continuous-viridis"},
+                "custom": {
+                    "drawStyle": "bars",
+                    "fillOpacity": 55,
+                    "lineWidth": 0,
+                    "showPoints": "auto",
+                    "axisSoftMin": 0,
+                    "gradientMode": "scheme",
+                    "lineInterpolation": "smooth",
+                    "barWidthFactor": 0.7,
+                    "showValues": True,
+                },
+            },
+            "overrides": [],
+        },
+    }
+
+
+def barchart_by_hour() -> dict:
+    return _bars_by_category(
+        "By hour of day", queries.builds_by_hour(), {"h": 7, "w": 12, "x": 0, "y": 15}
+    )
+
+
+def barchart_by_weekday() -> dict:
+    return _bars_by_category(
+        "By weekday", queries.builds_by_weekday(), {"h": 7, "w": 12, "x": 12, "y": 15}
+    )
+
+
+def table_authors() -> dict:
+    return _table("Who builds", queries.builds_by("author"), {"h": 8, "w": 8, "x": 0, "y": 22})
+
+
+def table_branches() -> dict:
+    return _table(
+        "Busiest branches", queries.builds_by("branch"), {"h": 8, "w": 8, "x": 8, "y": 22}
+    )
+
+
+def table_origins() -> dict:
+    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 22})
