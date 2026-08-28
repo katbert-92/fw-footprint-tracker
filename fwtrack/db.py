@@ -66,6 +66,23 @@ GROUP BY key
 ORDER BY key
 """
 
+# Values a dimension actually takes, so a dropdown full of hashes can be seen
+# for what it is before anything is changed.
+TAG_VALUES = """
+SELECT tags ->> %(tag)s AS value, count(*) AS builds
+FROM builds
+WHERE project = %(project)s AND tags ? %(tag)s
+GROUP BY 1
+ORDER BY 1
+"""
+
+# ::text for the same reason as in RENAME_TAG: jsonb_set takes text[], and the
+# parameter has no type Postgres can infer on its own.
+RENAME_VALUE = """
+UPDATE builds SET tags = jsonb_set(tags, ARRAY[%(tag)s::text], to_jsonb(%(new)s::text))
+WHERE project = %(project)s AND tags ->> %(tag)s = %(old)s
+"""
+
 DROP_TAG = """
 UPDATE builds SET tags = tags - %(tag)s
 WHERE project = %(project)s AND tags ? %(tag)s
@@ -261,6 +278,13 @@ def tag_counts(conn: psycopg.Connection, project: str) -> list:
         ]
 
 
+def tag_values(conn: psycopg.Connection, project: str, tag: str) -> list:
+    """Values of one dimension, with how many builds carry each."""
+    with conn.cursor() as cur:
+        cur.execute(TAG_VALUES, {"project": project, "tag": tag})
+        return [{"value": value, "builds": builds} for value, builds in cur]
+
+
 def _write(conn: psycopg.Connection, dry_run: bool) -> None:
     """Commit, or roll back a dry run.
 
@@ -307,6 +331,31 @@ def rename_tag(conn: psycopg.Connection, project: str, old: str, new: str,
             raise RuntimeError(
                 f"Cannot rename '{old}' to '{new}': the result collides with builds "
                 f"that already carry '{new}'"
+            ) from e
+
+        affected = cur.rowcount
+
+    _write(conn, dry_run)
+    return affected
+
+
+def rename_value(conn: psycopg.Connection, project: str, tag: str, old: str, new: str,
+                 dry_run: bool = False) -> int:
+    """Rewrite one value of a dimension. Returns rows affected.
+
+    What history recorded before a project started naming things: a build
+    labelled with a hash and the same build labelled with the name it stands for
+    are the same variant, and until they share a value they are two series on
+    every chart.
+    """
+    with conn.cursor() as cur:
+        try:
+            cur.execute(RENAME_VALUE, {"project": project, "tag": tag, "old": old, "new": new})
+        except psycopg.errors.UniqueViolation as e:
+            conn.rollback()
+            raise RuntimeError(
+                f"Cannot rename '{tag}={old}' to '{new}': builds of '{project}' already carry "
+                f"'{new}' and would collide with it. Delete the redundant builds first"
             ) from e
 
         affected = cur.rowcount

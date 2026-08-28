@@ -182,17 +182,25 @@ called by its full path — `/opt/fwtrack/fwtrack.sh backup` — from anywhere, 
 ./fwtrack.sh backup                                   # first, always
 
 ./fwtrack.sh tags list --project blinky               # dimensions, and how many builds use each
+./fwtrack.sh tags list --project blinky adeq          # values of one of them
+
 ./fwtrack.sh tags drop --project blinky bsp -n        # what it would do
 ./fwtrack.sh tags drop --project blinky bsp           # do it
 ./fwtrack.sh tags rename --project blinky cfg config
+./fwtrack.sh tags rename-value --project blinky adeq 52362d NB_B100.EXTLOCK
 ./fwtrack.sh tags drop-build 1090
 
 ./fwtrack.sh dash --project blinky                    # regenerate the dashboard afterwards
 ```
 
-Every edit is scoped to one project. Removing a dimension that two builds differ
-only by would collapse them into one row, so that is refused rather than guessed
-at; delete the redundant build first.
+`rename-value` is how history recorded before a project started naming things
+is folded in: a build labelled `52362d` and a build labelled `NB_B100.EXTLOCK`
+are the same variant, and until they share a value they are two series on every
+chart.
+
+Every edit is scoped to one project. An edit that would leave two builds
+identical — same commit, same time, same dimensions — is refused rather than
+guessed at; delete the redundant build first.
 
 `./fwtrack.sh check --project blinky` when a dashboard looks empty: it separates
 "nothing was recorded" from "the filters exclude everything", which look

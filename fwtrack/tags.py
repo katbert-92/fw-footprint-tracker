@@ -7,10 +7,15 @@ Until now that meant writing the SQL by hand.
 Talks to the database directly, so it runs where the database is reachable --
 on the server, through the container that already holds its credentials:
 
-    docker compose exec ingest fwtrack-tags list --project blinky
-    docker compose exec ingest fwtrack-tags drop --project blinky bsp
-    docker compose exec ingest fwtrack-tags rename --project blinky cfg config
-    docker compose exec ingest fwtrack-tags drop-build 1090
+    fwtrack-tags list --project blinky              dimensions
+    fwtrack-tags list --project blinky adeq         values of one of them
+    fwtrack-tags drop --project blinky bsp
+    fwtrack-tags rename --project blinky cfg config
+    fwtrack-tags rename-value --project blinky adeq 52362d NB_B100.EXTLOCK
+    fwtrack-tags drop-build 1090
+
+On a server these are reached through ./fwtrack.sh, which runs them in the
+container that already holds the database credentials.
 
 Deliberately not reachable over the ingest endpoint. An operation this rare does
 not need a route on the open internet, nor a second token on every deployment,
@@ -44,9 +49,10 @@ def parse_args():
     )
 
     listing = commands.add_parser(
-        "list", help="Dimensions of a project, and how many builds use each"
+        "list", help="Dimensions of a project, or the values of one of them"
     )
     listing.add_argument("--project", required=True)
+    listing.add_argument("tag", nargs="?", help="Show this dimension's values instead")
 
     drop = commands.add_parser(
         "drop", parents=[common], help="Remove a dimension from a project's history"
@@ -60,6 +66,14 @@ def parse_args():
     rename.add_argument("--project", required=True)
     rename.add_argument("old")
     rename.add_argument("new")
+
+    value = commands.add_parser(
+        "rename-value", parents=[common], help="Rewrite one value of a dimension"
+    )
+    value.add_argument("--project", required=True)
+    value.add_argument("tag")
+    value.add_argument("old")
+    value.add_argument("new")
 
     build = commands.add_parser(
         "drop-build", parents=[common], help="Delete one build and its regions"
@@ -87,6 +101,18 @@ def print_tags(rows: list, project: str) -> None:
     ))
 
 
+def print_values(rows: list, project: str, tag: str) -> None:
+    if not rows:
+        print(f"'{project}' records no dimension called '{tag}'")
+        return
+
+    print(tabulate(
+        [[r["value"], r["builds"]] for r in rows],
+        headers=[tag, "Builds"],
+        tablefmt="simple",
+    ))
+
+
 def report(dry_run: bool, message: str) -> None:
     print(f"Dry run: {message[0].lower() + message[1:]} (nothing written)" if dry_run else message)
 
@@ -94,7 +120,10 @@ def report(dry_run: bool, message: str) -> None:
 def run(args) -> None:
     with db.connect() as conn:
         if args.command == "list":
-            print_tags(db.tag_counts(conn, args.project), args.project)
+            if args.tag:
+                print_values(db.tag_values(conn, args.project, args.tag), args.project, args.tag)
+            else:
+                print_tags(db.tag_counts(conn, args.project), args.project)
             return
 
         if args.command == "drop":
@@ -106,6 +135,14 @@ def run(args) -> None:
         if args.command == "rename":
             affected = db.rename_tag(conn, args.project, args.old, args.new, args.dry_run)
             report(args.dry_run, f"'{args.old}' renamed to '{args.new}' in {affected} builds")
+            return
+
+        if args.command == "rename-value":
+            affected = db.rename_value(
+                conn, args.project, args.tag, args.old, args.new, args.dry_run
+            )
+            report(args.dry_run,
+                   f"'{args.tag}={args.old}' renamed to '{args.new}' in {affected} builds")
             return
 
         deleted = db.delete_build(conn, args.build_id, args.dry_run)

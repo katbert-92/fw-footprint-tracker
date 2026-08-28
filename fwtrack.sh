@@ -4,9 +4,11 @@
 #
 #   ./fwtrack.sh up                                start it, or pick up a new version
 #   ./fwtrack.sh backup                            dump the database, gzipped, here
-#   ./fwtrack.sh tags list   --project blinky      dimensions, and how many builds use each
-#   ./fwtrack.sh tags drop   --project blinky bsp  remove one (-n first, to see what it would do)
-#   ./fwtrack.sh tags rename --project blinky a b  rename one, keeping its values
+#   ./fwtrack.sh tags list --project blinky        dimensions, and how many builds use each
+#   ./fwtrack.sh tags list --project blinky adeq   values of one dimension
+#   ./fwtrack.sh tags drop --project blinky bsp    remove a dimension (-n first, to rehearse)
+#   ./fwtrack.sh tags rename --project blinky a b  rename a dimension, keeping its values
+#   ./fwtrack.sh tags rename-value --project blinky adeq 52362d NB_B100.EXTLOCK
 #   ./fwtrack.sh tags drop-build 1090              delete one build and its regions
 #   ./fwtrack.sh dash --project blinky             regenerate its dashboard
 #   ./fwtrack.sh check                             services, schema, data
