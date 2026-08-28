@@ -107,6 +107,46 @@ CI_BRANCH_VARS = [
 ]
 DETACHED = "HEAD"
 
+# Consulted in this order when a tagged build has to be attributed to a branch.
+# A long-lived branch is a better answer than whichever feature branch happens
+# to come first alphabetically.
+PREFERRED_BRANCHES = ("main", "master", "dev", "develop")
+
+
+def branch_containing(repo: Path) -> str:
+    """The branch a tagged build was cut from, as far as git can tell.
+
+    A tag pipeline has no branch of its own: GitLab leaves CI_COMMIT_BRANCH
+    empty and puts the tag in CI_COMMIT_REF_NAME. Recording that as the branch
+    adds one dead entry to the dashboard filter per tag -- and a project that
+    tags a few times a day drowns the list in a week. The branch containing the
+    commit is both stable and more useful: it keeps a tagged build on the same
+    line as the work leading up to it, instead of starting a series of one.
+
+    Needs history, so a shallow CI clone finds nothing and the caller falls
+    back to the tag name.
+    """
+    listed = git_output(
+        repo, "branch", "--all", "--contains", "HEAD", "--format=%(refname:short)"
+    )
+
+    names = []
+    for line in listed.splitlines():
+        name = line.strip().removeprefix("origin/")
+        # Skipped: origin/HEAD is a pointer to the default branch rather than a
+        # branch, and on a detached HEAD git lists a placeholder of its own --
+        # "(HEAD detached at v1.2)", "(no branch)".
+        if not name or name == DETACHED or name.startswith(("HEAD", "(")):
+            continue
+
+        names.append(name)
+
+    for preferred in PREFERRED_BRANCHES:
+        if preferred in names:
+            return preferred
+
+    return names[0] if names else ""
+
 
 def resolve_branch(repo: Path, override: str | None = None) -> str:
     """Name of the branch this build belongs to.
@@ -122,6 +162,15 @@ def resolve_branch(repo: Path, override: str | None = None) -> str:
     branch = git_output(repo, "rev-parse", "--abbrev-ref", "HEAD")
     if branch and branch != DETACHED:
         return branch
+
+    # Before the environment: on a tag pipeline CI_COMMIT_REF_NAME holds the
+    # tag, and recording a tag as a branch is what fills the filter with
+    # entries that exist once and never again.
+    if os.getenv("CI_COMMIT_TAG") or os.getenv("GITHUB_REF_TYPE") == "tag":
+        contained = branch_containing(repo)
+        if contained:
+            logger.info(f"Tagged build: attributing it to the branch '{contained}'")
+            return contained
 
     for name in CI_BRANCH_VARS:
         value = os.getenv(name)
@@ -194,8 +243,7 @@ def build_record(meta: dict, config: dict, cli_tags: list, toolchain: str,
     """
     project = project_override or resolve_project(meta, config)
     if not project:
-        logger.error("No project name: set `project` in the config or pass --project")
-        sys.exit(1)
+        raise ValueError("No project name: set `project` in the config or pass --project")
 
     dirty = bool(git_output(repo, "status", "--porcelain", "--untracked-files=no"))
     version = (

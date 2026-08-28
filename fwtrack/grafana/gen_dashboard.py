@@ -166,7 +166,7 @@ def build_dashboard(project: str, variant_tags: list, areas: list,
 
     return {
         "uid": f"fwtrack-{project}",
-        "title": f"Firmware memory",
+        "title": "Firmware memory",
         "description": (
             f"Memory footprint of '{project}' across builds. "
             f"Dimensions: {', '.join(variant_tags)}. "
