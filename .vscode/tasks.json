@@ -1,0 +1,41 @@
+{
+    "version": "2.0.0",
+
+    "tasks": [
+        {
+            "label": "🔍 | Lint Project",
+            "type": "shell",
+            "command": "pre-commit run markdownlint-fix --all-files --hook-stage manual; pre-commit run --all-files",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "clear": true
+            }
+        },
+        {
+            "label": "🏷️ | Cut release",
+            "type": "shell",
+            "command": "make",
+            "args": ["release", "VERSION=${input:ReleaseVersion}"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "clear": true
+            }
+        }
+    ],
+
+    "inputs": [
+        {
+            "id": "ReleaseVersion",
+            "type": "promptString",
+            "description": "Version to tag, e.g. 0.1.1 (run on main, tree clean)"
+        }
+    ]
+}
