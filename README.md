@@ -21,12 +21,15 @@ already prints.
 
 ```bash
 git clone https://github.com/katbert-92/fw-footprint-tracker
-cd fw-footprint-tracker && make up
+cd fw-footprint-tracker && ./fwtrack.sh up
 ```
 
 Generates secrets, picks free ports, prints the endpoint and token. Later:
-`make update` (pulls and restarts; `.env` is gitignored and survives). It follows
-whatever ref is checked out — see [Versions](#versions).
+`./fwtrack.sh update` (pulls and restarts; `.env` is gitignored and survives). It
+follows whatever ref is checked out — see [Versions](#versions).
+
+`./fwtrack.sh` is the only thing to run on the server; `./fwtrack.sh help` lists
+what it does.
 
 Ports bind to `127.0.0.1` for a host with a reverse proxy. `BIND_ADDRESS=0.0.0.0`
 reaches them directly instead.
@@ -160,8 +163,38 @@ dead branches stays usable.
 | `fwtrack-dash` | generate a project dashboard |
 | `fwtrack-init` | check services, schema and data |
 | `fwtrack-server` | the ingest endpoint |
+| `fwtrack-tags` | edit dimensions and builds already recorded |
 
-`fwtrack-init --project blinky` first when a dashboard looks empty: it separates
+The first three run in the project being measured. The rest need the database,
+so on a server they are reached through `./fwtrack.sh`, which runs them in the
+container that already holds its credentials.
+
+### Maintenance
+
+Projects change what they measure: a dimension turns out to duplicate another,
+or to have been named badly, or a build gets recorded that should not have been.
+
+The script changes to its own directory before doing anything, so it can be
+called by its full path — `/opt/fwtrack/fwtrack.sh backup` — from anywhere, and
+`cd` is never needed:
+
+```bash
+./fwtrack.sh backup                                   # first, always
+
+./fwtrack.sh tags list --project blinky               # dimensions, and how many builds use each
+./fwtrack.sh tags drop --project blinky bsp -n        # what it would do
+./fwtrack.sh tags drop --project blinky bsp           # do it
+./fwtrack.sh tags rename --project blinky cfg config
+./fwtrack.sh tags drop-build 1090
+
+./fwtrack.sh dash --project blinky                    # regenerate the dashboard afterwards
+```
+
+Every edit is scoped to one project. Removing a dimension that two builds differ
+only by would collapse them into one row, so that is refused rather than guessed
+at; delete the redundant build first.
+
+`./fwtrack.sh check --project blinky` when a dashboard looks empty: it separates
 "nothing was recorded" from "the filters exclude everything", which look
 identical from the dashboard.
 
@@ -212,7 +245,7 @@ changed needs `DROP VIEW` — `CREATE OR REPLACE` cannot reorder them.
 ### Backups
 
 ```bash
-docker compose exec -T postgres pg_dump -U fwtrack fwtrack | gzip > fwtrack-$(date +%F).sql.gz
+./fwtrack.sh backup
 ```
 
 ## Versions
@@ -223,7 +256,7 @@ same tag: a branch moves under you, a tag does not.
 | | |
 |---|---|
 | project | `pip install git+https://github.com/katbert-92/fw-footprint-tracker@v0.1.0` |
-| server | `git checkout v0.1.0 && make up` |
+| server | `git checkout v0.1.0 && ./fwtrack.sh up` |
 
 `curl http://<host>:8099/ingest/health` reports the version a server is running,
 which is the one thing ssh would otherwise be needed for.

@@ -71,6 +71,11 @@ services:
       FWTRACK_INGEST_TOKEN: ${FWTRACK_INGEST_TOKEN:?run `make up`, which generates one}
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${INGEST_PORT:-8099}:8099"
+    volumes:
+      # Dashboards are generated from what the database holds, so the container
+      # that can reach the database is the one that writes them. Grafana reads
+      # the same directory.
+      - ./deploy/grafana/dashboards:/dashboards
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8099/ingest/health')\""]
       interval: 30s
