@@ -196,7 +196,13 @@ called by its full path — `/opt/fwtrack/fwtrack.sh backup` — from anywhere, 
 `rename-value` is how history recorded before a project started naming things
 is folded in: a build labelled `52362d` and a build labelled `NB_B100.EXTLOCK`
 are the same variant, and until they share a value they are two series on every
-chart.
+chart. It works on `branch`, `origin`, `author`, `version` and `toolchain` too,
+which are columns rather than tags but the same thing from a dashboard:
+
+```bash
+./fwtrack.sh tags list --project blinky origin
+./fwtrack.sh tags rename-value --project blinky origin mr merge-request
+```
 
 Every edit is scoped to one project. An edit that would leave two builds
 identical — same commit, same time, same dimensions — is refused rather than

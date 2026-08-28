@@ -66,6 +66,12 @@ GROUP BY key
 ORDER BY key
 """
 
+# Columns of `builds` that behave like a dimension on a dashboard: filterable,
+# and occasionally renamed after a pipeline starts labelling runs differently.
+# A fixed set because an identifier cannot be passed as a query parameter -- the
+# name below is interpolated into the SQL, so it may only ever come from here.
+FIELDS = frozenset({"branch", "origin", "author", "version", "toolchain"})
+
 # Values a dimension actually takes, so a dropdown full of hashes can be seen
 # for what it is before anything is changed.
 TAG_VALUES = """
@@ -279,9 +285,21 @@ def tag_counts(conn: psycopg.Connection, project: str) -> list:
 
 
 def tag_values(conn: psycopg.Connection, project: str, tag: str) -> list:
-    """Values of one dimension, with how many builds carry each."""
+    """Values of one dimension, with how many builds carry each.
+
+    A dimension is a tag or one of FIELDS -- the same thing from the dashboard,
+    so the same thing here.
+    """
     with conn.cursor() as cur:
-        cur.execute(TAG_VALUES, {"project": project, "tag": tag})
+        if tag in FIELDS:
+            cur.execute(
+                f"SELECT COALESCE({tag}::text, '(none)') AS value, count(*) AS builds "
+                "FROM builds WHERE project = %s GROUP BY 1 ORDER BY 1",
+                (project,),
+            )
+        else:
+            cur.execute(TAG_VALUES, {"project": project, "tag": tag})
+
         return [{"value": value, "builds": builds} for value, builds in cur]
 
 
@@ -349,6 +367,18 @@ def rename_value(conn: psycopg.Connection, project: str, tag: str, old: str, new
     every chart.
     """
     with conn.cursor() as cur:
+        if tag in FIELDS:
+            # No collision to guard against: none of these columns take part in
+            # the identity index that makes two builds the same row.
+            cur.execute(
+                f"UPDATE builds SET {tag} = %(new)s "
+                f"WHERE project = %(project)s AND {tag} = %(old)s",
+                {"project": project, "old": old, "new": new},
+            )
+            affected = cur.rowcount
+            _write(conn, dry_run)
+            return affected
+
         try:
             cur.execute(RENAME_VALUE, {"project": project, "tag": tag, "old": old, "new": new})
         except psycopg.errors.UniqueViolation as e:

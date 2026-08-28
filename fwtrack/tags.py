@@ -52,7 +52,9 @@ def parse_args():
         "list", help="Dimensions of a project, or the values of one of them"
     )
     listing.add_argument("--project", required=True)
-    listing.add_argument("tag", nargs="?", help="Show this dimension's values instead")
+    listing.add_argument(
+        "tag", nargs="?", help="Show this dimension's values instead (a tag, or a field)"
+    )
 
     drop = commands.add_parser(
         "drop", parents=[common], help="Remove a dimension from a project's history"
@@ -71,7 +73,7 @@ def parse_args():
         "rename-value", parents=[common], help="Rewrite one value of a dimension"
     )
     value.add_argument("--project", required=True)
-    value.add_argument("tag")
+    value.add_argument("tag", help="A tag, or one of: branch, origin, author, version, toolchain")
     value.add_argument("old")
     value.add_argument("new")
 
@@ -99,6 +101,7 @@ def print_tags(rows: list, project: str) -> None:
         headers=["Dimension", "Builds", "Values"],
         tablefmt="simple",
     ))
+    print(f"\nFields, which behave the same way here: {', '.join(sorted(db.FIELDS))}")
 
 
 def print_values(rows: list, project: str, tag: str) -> None:
