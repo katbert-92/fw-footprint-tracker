@@ -54,6 +54,34 @@ ON CONFLICT (project, region) DO UPDATE
 """
 
 
+# One row per dimension the project has ever recorded. The number of distinct
+# values is what tells a dimension from an accident: a handful means a variant
+# worth filtering by, hundreds means something like a commit hash that should
+# never have been a tag.
+TAG_COUNTS = """
+SELECT key, count(*) AS builds, count(DISTINCT b.tags ->> key) AS values
+FROM builds b, LATERAL jsonb_object_keys(b.tags) AS key
+WHERE b.project = %s
+GROUP BY key
+ORDER BY key
+"""
+
+DROP_TAG = """
+UPDATE builds SET tags = tags - %(tag)s
+WHERE project = %(project)s AND tags ? %(tag)s
+"""
+
+# ::text on the new name: jsonb_build_object takes "any", and without the cast
+# Postgres cannot infer the parameter's type and refuses to plan the statement.
+RENAME_TAG = """
+UPDATE builds SET tags = (tags - %(old)s) || jsonb_build_object(%(new)s::text, tags ->> %(old)s)
+WHERE project = %(project)s AND tags ? %(old)s
+"""
+
+# memory_usage goes with it: the foreign key is ON DELETE CASCADE.
+DELETE_BUILD = "DELETE FROM builds WHERE id = %s RETURNING project, commit, built_at"
+
+
 def record(build: dict, regions: list, url=None, token=None, dsn=None) -> int | None:
     """Store one build, over HTTP if a URL is known and straight to the database otherwise.
 
@@ -73,32 +101,44 @@ def record(build: dict, regions: list, url=None, token=None, dsn=None) -> int | 
         return write_build(conn, build, regions)
 
 
-def post(url: str, build: dict, regions: list, token: str | None = None) -> int | None:
+def api(method: str, path: str, payload: dict | None = None, url: str | None = None,
+        token: str | None = None) -> dict:
+    """One call to the ingest endpoint."""
+    url = (url or os.getenv(URL_ENV) or "").strip()
+    if not url:
+        raise RuntimeError(f"Pass url=, or set {URL_ENV}")
+
     token = (token or os.getenv(TOKEN_ENV) or "").strip()
     if not token:
-        raise RuntimeError(f"Pass token=, or set {TOKEN_ENV}, to post to {url}")
+        raise RuntimeError(f"Pass token=, or set {TOKEN_ENV}, to reach {url}")
 
-    payload = json.dumps(
-        {"build": build, "regions": regions},
-        default=lambda o: o.isoformat() if hasattr(o, "isoformat") else str(o),
-    ).encode()
+    data = None
+    if payload is not None:
+        data = json.dumps(
+            payload,
+            default=lambda o: o.isoformat() if hasattr(o, "isoformat") else str(o),
+        ).encode()
 
     request = urllib.request.Request(
-        f"{url.rstrip('/')}/ingest/builds",
-        data=payload,
+        f"{url.rstrip('/')}{path}",
+        data=data,
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "User-Agent": USER_AGENT,
         },
-        method="POST",
+        method=method,
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            result = json.loads(response.read())
+            return json.loads(response.read() or b"{}")
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"Ingest returned {e.code}: {e.read().decode()[:200]}") from e
 
+
+def post(url: str, build: dict, regions: list, token: str | None = None) -> int | None:
+    result = api("POST", "/ingest/builds", {"build": build, "regions": regions},
+                 url=url, token=token)
     logger.info(f"Recorded build {result.get('build_id')} via {url}")
     return result.get("build_id")
 
@@ -210,6 +250,83 @@ def region_limits(conn: psycopg.Connection, project: str) -> dict:
     with conn.cursor() as cur:
         cur.execute(query, (project,))
         return {region: (total, list(thresholds or [])) for region, total, thresholds in cur}
+
+
+def tag_counts(conn: psycopg.Connection, project: str) -> list:
+    """Every dimension of a project, with how many builds carry it."""
+    with conn.cursor() as cur:
+        cur.execute(TAG_COUNTS, (project,))
+        return [
+            {"tag": tag, "builds": builds, "values": values} for tag, builds, values in cur
+        ]
+
+
+def _write(conn: psycopg.Connection, dry_run: bool) -> None:
+    """Commit, or roll back a dry run.
+
+    Running the statement and rolling it back is how --dry-run reports the exact
+    number of rows it would touch. Counting them separately would be a second
+    query that can disagree with the first.
+    """
+    if dry_run:
+        conn.rollback()
+    else:
+        conn.commit()
+
+
+def drop_tag(conn: psycopg.Connection, project: str, tag: str, dry_run: bool = False) -> int:
+    """Remove one dimension from a project's history. Returns rows affected."""
+    with conn.cursor() as cur:
+        try:
+            cur.execute(DROP_TAG, {"project": project, "tag": tag})
+        except psycopg.errors.UniqueViolation as e:
+            # builds are unique on (project, commit, built_at, tags): two builds
+            # of the same commit that differed only by this tag become the same
+            # row once it is gone. Refusing is the honest answer -- picking a
+            # winner would silently drop measurements.
+            conn.rollback()
+            raise RuntimeError(
+                f"Cannot drop '{tag}': builds of '{project}' exist that differ only by it, "
+                "and removing it would collide them. Delete the redundant builds first"
+            ) from e
+
+        affected = cur.rowcount
+
+    _write(conn, dry_run)
+    return affected
+
+
+def rename_tag(conn: psycopg.Connection, project: str, old: str, new: str,
+               dry_run: bool = False) -> int:
+    """Rename one dimension, keeping its values. Returns rows affected."""
+    with conn.cursor() as cur:
+        try:
+            cur.execute(RENAME_TAG, {"project": project, "old": old, "new": new})
+        except psycopg.errors.UniqueViolation as e:
+            conn.rollback()
+            raise RuntimeError(
+                f"Cannot rename '{old}' to '{new}': the result collides with builds "
+                f"that already carry '{new}'"
+            ) from e
+
+        affected = cur.rowcount
+
+    _write(conn, dry_run)
+    return affected
+
+
+def delete_build(conn: psycopg.Connection, build_id: int, dry_run: bool = False) -> dict | None:
+    """Delete one build and its regions. Returns what was deleted, or None."""
+    with conn.cursor() as cur:
+        cur.execute(DELETE_BUILD, (build_id,))
+        row = cur.fetchone()
+
+    _write(conn, dry_run)
+    if row is None:
+        return None
+
+    project, commit, built_at = row
+    return {"id": build_id, "project": project, "commit": commit, "built_at": built_at}
 
 
 def list_projects(conn: psycopg.Connection) -> list:
