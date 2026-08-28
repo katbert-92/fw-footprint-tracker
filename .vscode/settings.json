@@ -1,0 +1,24 @@
+{
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+
+    // Fixes and import order on save, but no reformatting: see
+    // .pre-commit-config.yaml for why the formatter is left out.
+    "[python]": {
+        "editor.codeActionsOnSave": {
+            "source.fixAll.ruff": "explicit",
+            "source.organizeImports.ruff": "explicit"
+        }
+    },
+
+    "markdownlint.run": "onSave",
+    "[markdown]": {
+        "editor.codeActionsOnSave": {
+            "source.fixAll.markdownlint": "always"
+        }
+    },
+
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/*.egg-info": true
+    }
+}

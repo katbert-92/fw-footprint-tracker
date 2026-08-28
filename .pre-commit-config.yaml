@@ -1,0 +1,38 @@
+# Once per clone:  pre-commit install
+#
+# Linters only, no formatter. Argument lists and trailing comments in this
+# codebase are aligned by hand, and `ruff format` would reflow all of it for no
+# benefit.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.5
+    hooks:
+      - id: ruff-check
+        args: ["--fix"]
+
+  # Scans what is about to be committed. .env is gitignored and never staged,
+  # so the secrets that matter here are the ones pasted into a file by mistake.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks
+        name: gitleaks (protect staged)
+        entry: gitleaks protect
+        args:
+          - "--staged"
+          - "--no-banner"
+          - "--verbose"
+          - "--redact"
+          - "--config=.gitleaks.toml"
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.45.0
+    hooks:
+      - id: markdownlint
+        args: ["--config", ".markdownlint.json"]
+
+      # pre-commit run markdownlint-fix --all-files --hook-stage manual
+      - id: markdownlint-fix
+        args: ["--config", ".markdownlint.json", "--fix"]
+        stages: [manual]
