@@ -316,26 +316,3 @@ FROM builds
 GROUP BY 1
 ORDER BY 2 DESC
 LIMIT {int(limit)}"""
-
-
-def recent_commits() -> str:
-    """The build log: one row per build, newest first, with its total footprint.
-
-    The hash is the point of this panel -- it is what gets pasted into a message
-    asking someone what they changed.
-    """
-    return """SELECT b.built_at AS time,
-       b.commit,
-       b.branch,
-       COALESCE(b.author, '(none)') AS author,
-       b.version,
-       b.origin,
-       b.dirty,
-       sum(m.used) AS total_used
-FROM builds b
-LEFT JOIN memory_usage m ON m.build_id = b.id
-WHERE b.project = '$project'
-  AND $__timeFilter(b.built_at)
-GROUP BY b.id, b.built_at, b.commit, b.branch, b.author, b.version, b.origin, b.dirty
-ORDER BY b.built_at DESC
-LIMIT 200"""

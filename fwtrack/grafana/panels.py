@@ -294,7 +294,7 @@ def _table(title: str, sql: str, grid: dict, overrides: list | None = None) -> d
     }
 
 
-def _bars_by_category(title: str, sql: str, grid: dict, colour: str) -> dict:
+def _bars_by_category(title: str, sql: str, grid: dict) -> dict:
     """Bar chart over a text column: hours, weekdays, names.
 
     A barchart rather than a time series: the x axis here is a category, and the
@@ -308,14 +308,14 @@ def _bars_by_category(title: str, sql: str, grid: dict, colour: str) -> dict:
         "targets": _target(sql, table=True),
         "options": {
             "orientation": "auto",
-            "showValue": "auto",
+            "showValue": "always",
             "xTickLabelRotation": 0,
             "legend": {"showLegend": False},
             "tooltip": {"mode": "single"},
         },
         "fieldConfig": {
             "defaults": {
-                "color": {"mode": "fixed", "fixedColor": colour},
+                "color": {"mode": "continuous-viridis"},
                 "custom": {"fillOpacity": 80, "lineWidth": 0, "axisSoftMin": 0},
             },
             "overrides": [],
@@ -326,16 +326,16 @@ def _bars_by_category(title: str, sql: str, grid: dict, colour: str) -> dict:
 def stat_activity_totals() -> dict:
     return {
         "type": "stat",
-        "title": "In the range",
+        "title": "Common",
         "datasource": DS,
-        "gridPos": {"h": 4, "w": 24, "x": 0, "y": 0},
+        "gridPos": {"h": 7, "w": 24, "x": 0, "y": 0},
         "targets": _target(queries.activity_totals(), table=True),
         "options": {
-            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
-            "orientation": "horizontal",
-            "textMode": "value_and_name",
-            "colorMode": "value",
-            "graphMode": "none",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/.*/", "values": False},
+            "orientation": "vertical",
+            "textMode": "auto",
+            "colorMode": "none",
+            "graphMode": "area",
         },
         "fieldConfig": {
             "defaults": {
@@ -352,21 +352,21 @@ def timeseries_builds_per_day() -> dict:
         "type": "timeseries",
         "title": "Builds per day",
         "datasource": DS,
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 7},
         "targets": _target(queries.builds_per_day()),
         "options": {
-            "legend": {"showLegend": False},
+            "legend": {"showLegend": True},
             "tooltip": {"mode": "single"},
         },
         "fieldConfig": {
             "defaults": {
                 "decimals": 0,
-                "color": {"mode": "fixed", "fixedColor": "blue"},
+                "color": {"mode": "continuous-viridis"},
                 "custom": {
                     "drawStyle": "bars",
-                    "fillOpacity": 80,
-                    "lineWidth": 0,
-                    "showPoints": "never",
+                    "fillOpacity": 55,
+                    "lineWidth": 2,
+                    "showPoints": "auto",
                     "axisSoftMin": 0,
                 },
             },
@@ -377,56 +377,25 @@ def timeseries_builds_per_day() -> dict:
 
 def barchart_by_hour() -> dict:
     return _bars_by_category(
-        "By hour of day", queries.builds_by_hour(), {"h": 7, "w": 12, "x": 0, "y": 12}, "purple"
+        "By hour of day", queries.builds_by_hour(), {"h": 7, "w": 12, "x": 0, "y": 15}
     )
 
 
 def barchart_by_weekday() -> dict:
     return _bars_by_category(
-        "By weekday", queries.builds_by_weekday(), {"h": 7, "w": 12, "x": 12, "y": 12}, "green"
+        "By weekday", queries.builds_by_weekday(), {"h": 7, "w": 12, "x": 12, "y": 15}
     )
 
 
 def table_authors() -> dict:
-    return _table("Who builds", queries.builds_by("author"), {"h": 8, "w": 8, "x": 0, "y": 19})
+    return _table("Who builds", queries.builds_by("author"), {"h": 8, "w": 8, "x": 0, "y": 22})
 
 
 def table_branches() -> dict:
     return _table(
-        "Busiest branches", queries.builds_by("branch"), {"h": 8, "w": 8, "x": 8, "y": 19}
+        "Busiest branches", queries.builds_by("branch"), {"h": 8, "w": 8, "x": 8, "y": 22}
     )
 
 
 def table_origins() -> dict:
-    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 19})
-
-
-def table_commits() -> dict:
-    """The build log. The commit hash is the column this panel exists for."""
-    def rename(column: str, label: str) -> dict:
-        return {
-            "matcher": {"id": "byName", "options": column},
-            "properties": [{"id": "displayName", "value": label}],
-        }
-
-    return _table(
-        "Builds, newest first",
-        queries.recent_commits(),
-        {"h": 12, "w": 24, "x": 0, "y": 27},
-        overrides=[
-            rename("time", "Date"),
-            rename("commit", "Commit"),
-            rename("branch", "Branch"),
-            rename("author", "Author"),
-            rename("version", "Version"),
-            rename("origin", "Origin"),
-            rename("dirty", "Uncommitted"),
-            {
-                "matcher": {"id": "byName", "options": "total_used"},
-                "properties": [
-                    {"id": "unit", "value": "bytes"},
-                    {"id": "displayName", "value": "Total used"},
-                ],
-            },
-        ],
-    )
+    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 22})

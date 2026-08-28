@@ -228,13 +228,14 @@ dead branches stays usable.
 ### Build activity
 
 `fwtrack-dash` writes a second dashboard alongside the first, about the flow of
-builds rather than what they weigh: how many land per day, at what hours, on
-which branches, from whom, and a log of every build with its commit hash — the
-thing that gets pasted into a message asking someone what they changed.
+builds rather than what they weigh: how many land per day, at what hours and on
+which weekdays, and who and what they come from.
 
 No variant filters on it. "What is going on in this project" is a question about
 all of it, and answering it for one combination of dimensions would be answering
-something else.
+something else. A per-build log is deliberately absent for the same reason in
+reverse: a project that builds a dozen variants per commit turns one into a
+dozen rows of the same hash.
 
 ### Filter order
 
