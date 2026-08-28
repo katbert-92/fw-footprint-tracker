@@ -29,11 +29,14 @@ def _dimension(tag: str) -> str:
 # category.
 
 
-def _filters(variant_tags: list) -> str:
+def _filters(variant_tags: list, time_filter: bool = True) -> str:
     """WHERE clause shared by every panel.
 
     Each variant tag is a single-value variable: mixing optimisation levels on
     one chart is meaningless, the difference between profiles dwarfs any feature.
+
+    time_filter is dropped by the panels that look backwards: a window has to
+    contain the build being compared, not the one it is compared against.
     """
     lines = ["  WHERE project = '$project'"]
     lines += [f"    AND {_dimension(tag)} = '${tag}'" for tag in variant_tags]
@@ -45,8 +48,10 @@ def _filters(variant_tags: list) -> str:
         # choice sticks across panels and reloads. The capacity line follows
         # suit: the ceiling of what is on screen, not of what was left out.
         "    AND region IN (${region:sqlstring})",
-        "    AND $__timeFilter(built_at)",
     ]
+    if time_filter:
+        lines.append("    AND $__timeFilter(built_at)")
+
     return "\n".join(lines)
 
 
@@ -110,6 +115,12 @@ def _delta_cte(variant_tags: list, area_filter: bool = True) -> str:
     Partitioning by branch as well as region matters: comparing a commit on one
     branch against the previous build on another produces a number that means
     nothing.
+
+    Computed over the whole history and filtered by time afterwards. With the
+    range applied here instead, the build a change is measured against would be
+    cut off whenever it fell outside the window -- and since most builds are the
+    only one of their branch and variant on a given day, the panel came out
+    empty exactly when it was most needed.
     """
     area = "\n    AND area = '$area'" if area_filter else ""
     return f"""WITH deltas AS (
@@ -120,7 +131,7 @@ def _delta_cte(variant_tags: list, area_filter: bool = True) -> str:
          branch,
          used - LAG(used) OVER (PARTITION BY region, branch ORDER BY built_at) AS delta
   FROM memory_points
-{_filters(variant_tags)}{area}
+{_filters(variant_tags, time_filter=False)}{area}
 )"""
 
 
@@ -179,6 +190,7 @@ SELECT built_at AS time,
        region AS metric
 FROM deltas
 WHERE delta IS NOT NULL
+  AND $__timeFilter(built_at)
 ORDER BY 1"""
 
 
