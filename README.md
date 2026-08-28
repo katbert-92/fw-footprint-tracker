@@ -35,10 +35,72 @@ Ports bind to `127.0.0.1` for a host with a reverse proxy. `BIND_ADDRESS=0.0.0.0
 reaches them directly instead.
 
 | Container | |
-|---|---|
+| --- | --- |
 | `postgres` | the data; stays on loopback |
 | `ingest` | one authenticated POST, so runners never hold database credentials |
 | `grafana` | dashboards, generated rather than drawn |
+
+### API
+
+Two routes, both under `/ingest/`. `fwtrack` calls the second one for you; it is
+documented because a build system that would rather post JSON than install a
+Python package can do exactly that.
+
+```bash
+curl https://fwtrack.example.com/ingest/health
+# {"status": "ok", "version": "0.1.0"}
+```
+
+No token, so it can be a health check. The version is the one the server is
+actually running, which is otherwise an ssh session away.
+
+```bash
+curl -X POST https://fwtrack.example.com/ingest/builds \
+  -H "Authorization: Bearer $FWTRACK_INGEST_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "build": {
+      "project": "blinky",
+      "built_at": "2026-08-05T10:00:00+00:00",
+      "commit": "deadbee",
+      "branch": "dev",
+      "origin": "ci",
+      "dirty": false,
+      "version": "1.2.3",
+      "author": "Kat",
+      "toolchain": "GCC 15.2.1",
+      "tags": {"board": "nucleo", "build_type": "Release"}
+    },
+    "regions": [
+      {"region": "FLASH", "area": "flash", "used": 362144, "total": 524288,
+       "thresholds": [85, 90, 99]},
+      {"region": "SRAM1", "area": "ram", "used": 41232, "total": 131072}
+    ]
+  }'
+# {"build_id": 1091, "regions": 2}
+```
+
+`build` requires `project`, `built_at` (ISO 8601), `commit`, `branch`, `origin`
+and `dirty`. `regions` requires `region`, `area` and `used`. Everything else
+above is optional: a region without `total` records a size that is not known
+rather than a wrong one, and `thresholds` sets the warning levels for that
+region from then on.
+
+Writes upsert on `(project, commit, built_at, tags)`, so re-running a pipeline
+on the same commit refreshes the numbers instead of adding a second point.
+
+| | |
+| --- | --- |
+| 201 | recorded |
+| 400 | a required field is missing, or `built_at` is not a date |
+| 401 | wrong token, or none |
+| 413 | body over 1 MB |
+| 500 | the write failed; the container log has the reason |
+
+Editing what was recorded is not a route. Deleting a dimension is a rare,
+irreversible operation, and a token that every build runner holds should not be
+able to do it — so that lives in [Maintenance](#maintenance), behind server
+access.
 
 ## Project
 
@@ -76,7 +138,7 @@ Read from the environment; `.env` in the project root is a convenience, not a
 requirement. Every setting can also be passed as an argument.
 
 | | |
-|---|---|
+| --- | --- |
 | `FWTRACK_ENABLE` | `1` to record; anything else only prints |
 | `FWTRACK_URL` + `FWTRACK_INGEST_TOKEN` | send over HTTP |
 | `FWTRACK_DSN` | or write straight to the database |
@@ -142,7 +204,7 @@ dashboards are read-only: regenerating rewrites the file. **Save As** for a
 private copy; port anything worth keeping back into the generator.
 
 | Panel | |
-|---|---|
+| --- | --- |
 | Last build delta | what the newest build cost, per region |
 | Region usage | how full each region is, against its thresholds |
 | Builds | date, commit, branch, author, version, region, size |
@@ -162,6 +224,17 @@ time rather than the commit time so that local iterations stay separate.
 
 Variable lists follow the dashboard time range, so a project with thousands of
 dead branches stays usable.
+
+### Build activity
+
+`fwtrack-dash` writes a second dashboard alongside the first, about the flow of
+builds rather than what they weigh: how many land per day, at what hours, on
+which branches, from whom, and a log of every build with its commit hash — the
+thing that gets pasted into a message asking someone what they changed.
+
+No variant filters on it. "What is going on in this project" is a question about
+all of it, and answering it for one combination of dimensions would be answering
+something else.
 
 ### Filter order
 
@@ -186,7 +259,7 @@ one out of the filters entirely, `--exclude-tags`.
 ## Operations
 
 | | |
-|---|---|
+| --- | --- |
 | `fwtrack` | analyse and record one build |
 | `fwtrack-analyse` | analyse only, write JSON |
 | `fwtrack-push` | record an analysis produced earlier |
@@ -298,7 +371,7 @@ Releases are tagged on `main`; `dev` is where work lands. Pin both sides to the
 same tag: a branch moves under you, a tag does not.
 
 | | |
-|---|---|
+| --- | --- |
 | project | `pip install git+https://github.com/katbert-92/fw-footprint-tracker@v0.1.0` |
 | server | `git checkout v0.1.0 && ./fwtrack.sh up` |
 

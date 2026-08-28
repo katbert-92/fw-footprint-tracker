@@ -254,3 +254,88 @@ def simple_values(column: str, table: str = "memory_points") -> str:
         "  AND $__timeFilter(built_at)\n"
         "ORDER BY 1"
     )
+
+
+# ── Activity ────────────────────────────────────────────────────────────────
+#
+# A second dashboard, about the flow of builds rather than about memory: when
+# they happen, who makes them, what landed. Deliberately not filtered by the
+# variant dimensions -- the question here is "what is going on in this project",
+# and splitting it per build variant would answer a different one.
+
+ACTIVITY_FILTER = "WHERE project = '$project'\n  AND $__timeFilter(built_at)"
+
+
+def activity_totals() -> str:
+    """One row of counters for the stat panel."""
+    return f"""SELECT count(*)                  AS "Builds",
+       count(DISTINCT commit)         AS "Commits",
+       count(DISTINCT branch)         AS "Branches",
+       count(DISTINCT COALESCE(author, '(none)')) AS "Authors"
+FROM builds
+{ACTIVITY_FILTER}"""
+
+
+def builds_per_day() -> str:
+    return f"""SELECT date_trunc('day', built_at) AS time,
+       count(*) AS value,
+       'builds' AS metric
+FROM builds
+{ACTIVITY_FILTER}
+GROUP BY 1
+ORDER BY 1"""
+
+
+def builds_by_hour() -> str:
+    """Which hours of the day builds land in, local to the database."""
+    return f"""SELECT to_char(built_at, 'HH24') AS hour,
+       count(*) AS builds
+FROM builds
+{ACTIVITY_FILTER}
+GROUP BY 1
+ORDER BY 1"""
+
+
+def builds_by_weekday() -> str:
+    # Grouped by the number as well so the days come out in week order rather
+    # than alphabetically; a bar chart keeps the row order it is given.
+    return f"""SELECT to_char(built_at, 'Dy') AS day,
+       count(*) AS builds
+FROM builds
+{ACTIVITY_FILTER}
+GROUP BY 1, extract(isodow from built_at)
+ORDER BY extract(isodow from built_at)"""
+
+
+def builds_by(column: str, limit: int = 15) -> str:
+    """Who or what most of the builds come from."""
+    return f"""SELECT COALESCE({column}, '(none)') AS name,
+       count(*) AS builds
+FROM builds
+{ACTIVITY_FILTER}
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT {int(limit)}"""
+
+
+def recent_commits() -> str:
+    """The build log: one row per build, newest first, with its total footprint.
+
+    The hash is the point of this panel -- it is what gets pasted into a message
+    asking someone what they changed.
+    """
+    return """SELECT b.built_at AS time,
+       b.commit,
+       b.branch,
+       COALESCE(b.author, '(none)') AS author,
+       b.version,
+       b.origin,
+       b.dirty,
+       sum(m.used) AS total_used
+FROM builds b
+LEFT JOIN memory_usage m ON m.build_id = b.id
+WHERE b.project = '$project'
+  AND $__timeFilter(b.built_at)
+GROUP BY b.id, b.built_at, b.commit, b.branch, b.author, b.version, b.origin, b.dirty
+ORDER BY b.built_at DESC
+LIMIT 200"""
