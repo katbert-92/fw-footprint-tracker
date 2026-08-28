@@ -373,7 +373,7 @@ def timeseries_builds_per_day() -> dict:
                 "custom": {
                     "drawStyle": "bars",
                     "fillOpacity": 55,
-                    "lineWidth": 2,
+                    "lineWidth": 0,
                     "showPoints": "auto",
                     "axisSoftMin": 0,
                     "gradientMode": "scheme",

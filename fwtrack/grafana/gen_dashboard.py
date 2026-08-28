@@ -166,7 +166,7 @@ def build_dashboard(project: str, variant_tags: list, areas: list,
 
     return {
         "uid": f"fwtrack-{project}",
-        "title": f"Firmware memory — {project}",
+        "title": f"Firmware memory",
         "description": (
             f"Memory footprint of '{project}' across builds. "
             f"Dimensions: {', '.join(variant_tags)}. "
@@ -181,7 +181,7 @@ def build_dashboard(project: str, variant_tags: list, areas: list,
         "graphTooltip": 1,
         # Builds are rare enough that the usual six hour default reads as a
         # broken dashboard.
-        "time": {"from": "now-90d", "to": "now"},
+        "time": {"from": "now-3d", "to": "now"},
         "templating": {"list": build_variables(project, variant_tags, datasource_uid)},
         "annotations": {"list": [annotation_toolchain(variant_tags)]},
         "panels": [
@@ -220,7 +220,7 @@ def build_activity_dashboard(project: str, datasource_uid: str) -> dict:
         "graphTooltip": 0,
         # Shorter than the memory dashboard's: this one is about what is
         # happening now, not about a trend.
-        "time": {"from": "now-2d", "to": "now"},
+        "time": {"from": "now-3d", "to": "now"},
         "templating": {
             "list": [
                 {
