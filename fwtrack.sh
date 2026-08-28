@@ -2,7 +2,8 @@
 #
 # Everything done on the server, in one place.
 #
-#   ./fwtrack.sh up                                start it, or pick up a new version
+#   ./fwtrack.sh up                                start it, or restart it
+#   ./fwtrack.sh update                            pull, restart, regenerate dashboards
 #   ./fwtrack.sh backup                            dump the database, gzipped, here
 #   ./fwtrack.sh tags list --project blinky        dimensions, and how many builds use each
 #   ./fwtrack.sh tags list --project blinky adeq   values of one dimension
@@ -42,8 +43,15 @@ command=${1:-help}
 shift || true
 
 case "$command" in
-    up|update|down|restart|logs|ps|token|env)
+    up|down|restart|logs|ps|token|env)
         exec make "$command" "$@"
+        ;;
+    update)
+        make update "$@"
+        # Dashboards too, because "update" means "match what the code now
+        # generates". Deliberately not part of `up`: this overwrites anything
+        # edited in Grafana, so it belongs to a command that says so.
+        in_container fwtrack-dash --out-dir /dashboards --all
         ;;
     backup)
         file="fwtrack-$(date +%F-%H%M).sql.gz"

@@ -25,8 +25,12 @@ cd fw-footprint-tracker && ./fwtrack.sh up
 ```
 
 Generates secrets, picks free ports, prints the endpoint and token. Later:
-`./fwtrack.sh update` (pulls and restarts; `.env` is gitignored and survives). It
-follows whatever ref is checked out — see [Versions](#versions).
+`./fwtrack.sh update` — pulls, restarts, and regenerates every project's
+dashboards, which is what makes it different from `up`. `.env` is gitignored and
+survives. It follows whatever ref is checked out — see [Versions](#versions).
+
+Regenerating replaces dashboards edited in Grafana, so `up` never does it on its
+own: restarting the stack is not a reason to lose someone's layout.
 
 `./fwtrack.sh` is the only thing to run on the server; `./fwtrack.sh help` lists
 what it does.

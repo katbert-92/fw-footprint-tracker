@@ -45,7 +45,10 @@ FALLBACK_AREAS = ["flash", "ram"]
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate a Grafana dashboard for one project")
-    parser.add_argument("--project", required=True, help="Project name")
+    parser.add_argument("--project", help="Project name")
+    parser.add_argument(
+        "--all", action="store_true", help="Every project that has recorded a build"
+    )
     parser.add_argument(
         "--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="Where to write the dashboard JSON"
     )
@@ -289,35 +292,27 @@ def push(dashboard: dict, folder_uid: str | None) -> None:
         sys.exit(1)
 
 
-def main():
-    setup_logging()
-    args = parse_args()
-    load_dotenv(find_dotenv(usecwd=True))
+def generate(conn, project: str, args) -> None:
+    """Write both dashboards for one project."""
+    discovered = db.discover_variant_tags(conn, project)
 
-    with db.connect() as conn:
-        if not db.schema_ready(conn):
-            logger.error("Schema is missing; apply deploy/schema.sql first")
-            sys.exit(1)
+    # An order given here replaces the stored one; otherwise the stored one
+    # stands, so regenerating never silently reshuffles a dashboard.
+    chosen = [t.strip() for t in (args.variant_tags or "").split(",") if t.strip()]
+    if chosen:
+        db.set_variant_tag_order(conn, project, chosen)
+        logger.info(f"Filter order stored for '{project}': {', '.join(chosen)}")
+    else:
+        chosen = db.variant_tag_order(conn, project)
 
-        discovered = db.discover_variant_tags(conn, args.project)
+    # The order decides order only. A dimension the project stopped recording
+    # drops out on its own, and one it started recording since appears at the
+    # end rather than going missing until someone notices.
+    variant_tags = [t for t in chosen if t in discovered]
+    variant_tags += [t for t in discovered if t not in variant_tags]
 
-        # An order given here replaces the stored one; otherwise the stored one
-        # stands, so regenerating never silently reshuffles a dashboard.
-        chosen = [t.strip() for t in (args.variant_tags or "").split(",") if t.strip()]
-        if chosen:
-            db.set_variant_tag_order(conn, args.project, chosen)
-            logger.info(f"Filter order stored for '{args.project}': {', '.join(chosen)}")
-        else:
-            chosen = db.variant_tag_order(conn, args.project)
-
-        # The order decides order only. A dimension the project stopped
-        # recording drops out on its own, and one it started recording since
-        # appears at the end rather than going missing until someone notices.
-        variant_tags = [t for t in chosen if t in discovered]
-        variant_tags += [t for t in discovered if t not in variant_tags]
-
-        areas = db.discover_areas(conn, args.project)
-        limits = db.region_limits(conn, args.project)
+    areas = db.discover_areas(conn, project)
+    limits = db.region_limits(conn, project)
 
     excluded = {t.strip() for t in args.exclude_tags.split(",") if t.strip()}
     if excluded:
@@ -327,28 +322,25 @@ def main():
         variant_tags = [t for t in variant_tags if t not in excluded]
 
     if not variant_tags:
-        logger.warning(f"No dimensions recorded for '{args.project}', using defaults")
+        logger.warning(f"No dimensions recorded for '{project}', using defaults")
         variant_tags = list(FALLBACK_VARIANT_TAGS)
     if not areas:
-        logger.warning(f"No data for '{args.project}' yet, using default areas")
+        logger.warning(f"No data for '{project}' yet, using default areas")
         areas = list(FALLBACK_AREAS)
 
-    logger.info(f"Dimensions: {', '.join(variant_tags)}")
-    logger.info(f"Memory areas: {', '.join(areas)}")
+    logger.info(f"{project}: dimensions {', '.join(variant_tags)}; areas {', '.join(areas)}")
 
-    dashboard = build_dashboard(
-        args.project, variant_tags, areas, limits, args.datasource_uid
-    )
+    dashboard = build_dashboard(project, variant_tags, areas, limits, args.datasource_uid)
+    activity = build_activity_dashboard(project, args.datasource_uid)
 
     # One directory per project: the dashboard provider turns directories into
     # Grafana folders, and folders are where permissions are granted.
-    out_dir = args.out_dir / args.project
+    out_dir = args.out_dir / project
     out_dir.mkdir(parents=True, exist_ok=True)
-    activity = build_activity_dashboard(args.project, args.datasource_uid)
 
     for name, content in (
-        (f"fwtrack-{args.project}.json", dashboard),
-        (f"fwtrack-{args.project}-activity.json", activity),
+        (f"fwtrack-{project}.json", dashboard),
+        (f"fwtrack-{project}-activity.json", activity),
     ):
         out_path = out_dir / name
         out_path.write_text(
@@ -359,6 +351,34 @@ def main():
     if args.push:
         push(dashboard, args.folder_uid)
         push(activity, args.folder_uid)
+
+
+def main():
+    setup_logging()
+    args = parse_args()
+    load_dotenv(find_dotenv(usecwd=True))
+
+    if bool(args.project) == bool(args.all):
+        logger.error("Pass either --project NAME or --all")
+        sys.exit(1)
+    if args.all and args.variant_tags:
+        # The order is a property of one project; applying one list to all of
+        # them would quietly reorder dashboards nobody asked about.
+        logger.error("--variant-tags applies to one project, so not with --all")
+        sys.exit(1)
+
+    with db.connect() as conn:
+        if not db.schema_ready(conn):
+            logger.error("Schema is missing; apply deploy/schema.sql first")
+            sys.exit(1)
+
+        projects = db.list_projects(conn) if args.all else [args.project]
+        if not projects:
+            logger.warning("No project has recorded a build yet, nothing to generate")
+            return
+
+        for project in projects:
+            generate(conn, project, args)
 
 
 if __name__ == "__main__":
