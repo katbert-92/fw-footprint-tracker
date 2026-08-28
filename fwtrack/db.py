@@ -303,6 +303,24 @@ def tag_values(conn: psycopg.Connection, project: str, tag: str) -> list:
         return [{"value": value, "builds": builds} for value, builds in cur]
 
 
+def field_counts(conn: psycopg.Connection, project: str) -> list:
+    """The same summary as tag_counts, for the columns that behave like dimensions.
+
+    Counted rather than assumed present: a project that never records an author
+    should see that, not a row claiming every build has one.
+    """
+    names = sorted(FIELDS)
+    columns = ", ".join(f"count({name}), count(DISTINCT {name})" for name in names)
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT {columns} FROM builds WHERE project = %s", (project,))
+        row = cur.fetchone()
+
+    return [
+        {"tag": name, "builds": row[i * 2], "values": row[i * 2 + 1]}
+        for i, name in enumerate(names)
+    ]
+
+
 def _write(conn: psycopg.Connection, dry_run: bool) -> None:
     """Commit, or roll back a dry run.
 
@@ -316,8 +334,19 @@ def _write(conn: psycopg.Connection, dry_run: bool) -> None:
         conn.commit()
 
 
+def _refuse_field(name: str, action: str) -> None:
+    """A column is not a tag: it cannot be dropped or renamed, only its values can."""
+    if name in FIELDS:
+        raise RuntimeError(
+            f"'{name}' is a field of every build, not a tag, and cannot be {action}. "
+            f"Its values can be: fwtrack-tags rename-value --project ... {name} old new"
+        )
+
+
 def drop_tag(conn: psycopg.Connection, project: str, tag: str, dry_run: bool = False) -> int:
     """Remove one dimension from a project's history. Returns rows affected."""
+    _refuse_field(tag, "removed")
+
     with conn.cursor() as cur:
         try:
             cur.execute(DROP_TAG, {"project": project, "tag": tag})
@@ -341,6 +370,8 @@ def drop_tag(conn: psycopg.Connection, project: str, tag: str, dry_run: bool = F
 def rename_tag(conn: psycopg.Connection, project: str, old: str, new: str,
                dry_run: bool = False) -> int:
     """Rename one dimension, keeping its values. Returns rows affected."""
+    _refuse_field(old, "renamed")
+
     with conn.cursor() as cur:
         try:
             cur.execute(RENAME_TAG, {"project": project, "old": old, "new": new})

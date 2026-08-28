@@ -85,23 +85,25 @@ def parse_args():
     return parser.parse_args()
 
 
-def print_tags(rows: list, project: str) -> None:
-    """Dimensions of a project.
+def print_tags(tags: list, fields: list, project: str) -> None:
+    """Everything a project can be filtered or renamed by, in one table.
 
-    The number of distinct values is the useful column: a handful means a
-    variant worth filtering by, hundreds mean something like a commit hash that
-    should never have been a dimension.
+    Tags and fields are listed together because that is what they are from a
+    dashboard. The kind still matters for what can be done to them, hence the
+    column: a field's values can be rewritten, but the field itself stays.
+
+    The number of distinct values is the one to read: a handful means a variant
+    worth filtering by, hundreds mean something like a commit hash that should
+    never have been a dimension.
     """
+    rows = [[r["tag"], kind, r["builds"], r["values"]]
+            for kind, group in (("tag", tags), ("field", fields))
+            for r in group]
     if not rows:
-        print(f"No dimensions recorded for '{project}'")
+        print(f"Nothing recorded for '{project}'")
         return
 
-    print(tabulate(
-        [[r["tag"], r["builds"], r["values"]] for r in rows],
-        headers=["Dimension", "Builds", "Values"],
-        tablefmt="simple",
-    ))
-    print(f"\nFields, which behave the same way here: {', '.join(sorted(db.FIELDS))}")
+    print(tabulate(rows, headers=["Dimension", "Kind", "Builds", "Values"], tablefmt="simple"))
 
 
 def print_values(rows: list, project: str, tag: str) -> None:
@@ -126,7 +128,8 @@ def run(args) -> None:
             if args.tag:
                 print_values(db.tag_values(conn, args.project, args.tag), args.project, args.tag)
             else:
-                print_tags(db.tag_counts(conn, args.project), args.project)
+                print_tags(db.tag_counts(conn, args.project),
+                           db.field_counts(conn, args.project), args.project)
             return
 
         if args.command == "drop":
