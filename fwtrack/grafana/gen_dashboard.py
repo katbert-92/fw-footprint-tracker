@@ -58,6 +58,11 @@ def parse_args():
     parser.add_argument("--push", action="store_true", help="Upload into a running Grafana")
     parser.add_argument("--folder-uid", help="Grafana folder to upload into")
     parser.add_argument(
+        "--main-branch",
+        help="Branch the dashboards open on, remembered for the project. Every project has "
+        "one that matters more than the rest, and opening on all of them buries it",
+    )
+    parser.add_argument(
         "--variant-tags",
         help="Comma separated dimensions, in the order their filters should narrow each other. "
         "Remembered for the project, so later regenerations keep it",
@@ -73,7 +78,8 @@ def parse_args():
     return parser.parse_args()
 
 
-def query_variable(name: str, label: str, sql: str, multi: bool = False) -> dict:
+def query_variable(name: str, label: str, sql: str, multi: bool = False,
+                   default: str = "") -> dict:
     return {
         "name": name,
         "label": label,
@@ -96,13 +102,24 @@ def query_variable(name: str, label: str, sql: str, multi: bool = False) -> dict
         "includeAll": multi,
         # A multi variable with no current value comes back empty, the IN clause
         # gets nothing, and panels show No data for no visible reason.
-        "current": {"text": ["All"], "value": ["$__all"]} if multi else {},
+        "current": _current(multi, default),
         "options": [],
         "sort": 1,
     }
 
 
-def build_variables(project: str, variant_tags: list, datasource_uid: str) -> list:
+def _current(multi: bool, default: str) -> dict:
+    """What a variable is set to when the dashboard is first opened."""
+    if not multi:
+        return {}
+    if default:
+        return {"text": [default], "value": [default]}
+
+    return {"text": ["All"], "value": ["$__all"]}
+
+
+def build_variables(project: str, variant_tags: list, datasource_uid: str,
+                    per_region: bool = True, main_branch: str = "") -> list:
     variables = [
         {
             "name": "datasource",
@@ -129,14 +146,22 @@ def build_variables(project: str, variant_tags: list, datasource_uid: str) -> li
     ]
 
     variables += [
-        query_variable("branch", "Branch", queries.simple_values("branch"), multi=True),
+        query_variable("branch", "Branch", queries.simple_values("branch"), multi=True,
+                       default=main_branch),
         query_variable("origin", "Build origin", queries.simple_values("origin"), multi=True),
         # Multiple choice, like the branch: being made to pick one person to see
         # the chart at all would hide everyone else's work.
         query_variable("author", "Author", queries.author_values(), multi=True),
-        query_variable("area", "Memory area", queries.simple_values("area"), multi=True),
-        query_variable("region", "Region", queries.simple_values("region"), multi=True),
     ]
+
+    # The activity dashboard splits by area rather than filtering by it: those
+    # panels put every area on one chart, and a filter would only ever hide
+    # part of the picture.
+    if per_region:
+        variables += [
+            query_variable("area", "Memory area", queries.simple_values("area"), multi=True),
+            query_variable("region", "Region", queries.simple_values("region"), multi=True),
+        ]
 
     return variables
 
@@ -160,7 +185,7 @@ def annotation_toolchain(variant_tags: list) -> dict:
 
 
 def build_dashboard(project: str, variant_tags: list, limits: dict,
-                    datasource_uid: str) -> dict:
+                    datasource_uid: str, main_branch: str = "") -> dict:
     return {
         "uid": f"fwtrack-{project}",
         "title": "Firmware memory",
@@ -179,7 +204,10 @@ def build_dashboard(project: str, variant_tags: list, limits: dict,
         # Builds are rare enough that the usual six hour default reads as a
         # broken dashboard.
         "time": {"from": "now-3d", "to": "now"},
-        "templating": {"list": build_variables(project, variant_tags, datasource_uid)},
+        "templating": {
+            "list": build_variables(project, variant_tags, datasource_uid,
+                                    main_branch=main_branch)
+        },
         "annotations": {"list": [annotation_toolchain(variant_tags)]},
         "panels": [
             panels.bargauge_usage(variant_tags, limits),
@@ -191,12 +219,13 @@ def build_dashboard(project: str, variant_tags: list, limits: dict,
     }
 
 
-def build_activity_dashboard(project: str, datasource_uid: str) -> dict:
+def build_activity_dashboard(project: str, variant_tags: list, datasource_uid: str,
+                             main_branch: str = "") -> dict:
     """A second dashboard: the flow of builds rather than what they weigh.
 
-    No variant filters on purpose. "What is going on in this project" is a
-    question about all of it, and a dashboard that answers it only for one
-    combination of dimensions answers a different question.
+    Carries the same filters as the memory dashboard. The panels about the flow
+    of work would be happy without them, but the ones about how much room is
+    left would be adding up boards that have nothing in common.
     """
     return {
         "uid": f"fwtrack-{project}-activity",
@@ -217,32 +246,20 @@ def build_activity_dashboard(project: str, datasource_uid: str) -> dict:
         # happening now, not about a trend.
         "time": {"from": "now-3d", "to": "now"},
         "templating": {
-            "list": [
-                {
-                    "name": "datasource",
-                    "label": "Datasource",
-                    "type": "datasource",
-                    "query": "grafana-postgresql-datasource",
-                    "current": {"text": datasource_uid, "value": datasource_uid},
-                    "refresh": 1,
-                },
-                {
-                    "name": "project",
-                    "type": "constant",
-                    "query": project,
-                    "current": {"text": project, "value": project},
-                    "hide": 2,
-                },
-            ]
+            "list": build_variables(project, variant_tags, datasource_uid,
+                                    per_region=False, main_branch=main_branch)
         },
         "panels": [
-            panels.stat_activity_totals(),
-            panels.timeseries_builds_per_day(),
-            panels.barchart_by_hour(),
-            panels.barchart_by_weekday(),
-            panels.table_authors(),
-            panels.table_branches(),
-            panels.table_origins(),
+            panels.stat_activity_totals(variant_tags),
+            panels.bargauge_area_totals(variant_tags),
+            panels.timeseries_builds_over_time(variant_tags),
+            panels.barchart_by_hour(variant_tags),
+            panels.barchart_by_weekday(variant_tags),
+            panels.table_authors(variant_tags),
+            panels.table_branches(variant_tags),
+            panels.table_origins(variant_tags),
+            panels.timeseries_fullness(variant_tags),
+            panels.table_tightest_regions(variant_tags),
         ],
     }
 
@@ -291,14 +308,17 @@ def generate(conn, project: str, args) -> None:
     """Write both dashboards for one project."""
     discovered = db.discover_variant_tags(conn, project)
 
-    # An order given here replaces the stored one; otherwise the stored one
+    # Anything given here replaces what was stored; otherwise the stored value
     # stands, so regenerating never silently reshuffles a dashboard.
     chosen = [t.strip() for t in (args.variant_tags or "").split(",") if t.strip()]
-    if chosen:
-        db.set_variant_tag_order(conn, project, chosen)
-        logger.info(f"Filter order stored for '{project}': {', '.join(chosen)}")
-    else:
-        chosen = db.variant_tag_order(conn, project)
+    db.save_project_settings(
+        conn, project, variant_tags=chosen, main_branch=(args.main_branch or "").strip()
+    )
+    settings = db.project_settings(conn, project)
+    chosen = chosen or settings.get("variant_tags") or []
+    main_branch = settings.get("main_branch") or ""
+    if main_branch:
+        logger.info(f"{project}: dashboards open on branch '{main_branch}'")
 
     # The order decides order only. A dimension the project stopped recording
     # drops out on its own, and one it started recording since appears at the
@@ -325,8 +345,10 @@ def generate(conn, project: str, args) -> None:
 
     logger.info(f"{project}: dimensions {', '.join(variant_tags)}; areas {', '.join(areas)}")
 
-    dashboard = build_dashboard(project, variant_tags, limits, args.datasource_uid)
-    activity = build_activity_dashboard(project, args.datasource_uid)
+    dashboard = build_dashboard(project, variant_tags, limits, args.datasource_uid, main_branch)
+    activity = build_activity_dashboard(
+        project, variant_tags, args.datasource_uid, main_branch
+    )
 
     # One directory per project: the dashboard provider turns directories into
     # Grafana folders, and folders are where permissions are granted.

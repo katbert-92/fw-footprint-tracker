@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS project_settings (
     -- Order of the dashboard's filters, each narrowing the next. NULL means
     -- whatever order the dimensions come out of the database in.
     variant_tags TEXT[],
+    -- The branch a dashboard opens on. Every project has one that matters more
+    -- than the rest, and opening on "all branches" buries it.
+    main_branch  TEXT,
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

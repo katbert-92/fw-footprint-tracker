@@ -296,13 +296,13 @@ def _bars_by_category(title: str, sql: str, grid: dict) -> dict:
     }
 
 
-def stat_activity_totals() -> dict:
+def stat_activity_totals(variant_tags: list) -> dict:
     return {
         "type": "stat",
         "title": "Common",
         "datasource": DS,
         "gridPos": {"h": 7, "w": 24, "x": 0, "y": 0},
-        "targets": _target(queries.activity_totals(), table=True),
+        "targets": _target(queries.activity_totals(variant_tags), table=True),
         "options": {
             "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/.*/", "values": False},
             "orientation": "vertical",
@@ -312,22 +312,47 @@ def stat_activity_totals() -> dict:
             "graphMode": "area",
         },
         "fieldConfig": {
+            "defaults": {"decimals": 0, "color": {"mode": "fixed", "fixedColor": "text"}},
+            "overrides": [],
+        },
+    }
+
+
+def bargauge_area_totals(variant_tags: list) -> dict:
+    """One bar per memory area: how full it is as a whole, on the latest build."""
+    return {
+        "type": "bargauge",
+        "title": "Memory areas, last build",
+        "datasource": DS,
+        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 7},
+        "targets": _target(queries.area_totals(variant_tags)),
+        "options": {
+            "displayMode": "gradient",
+            "orientation": "horizontal",
+            "showUnfilled": True,
+            "valueMode": "color",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+        },
+        "fieldConfig": {
             "defaults": {
-                "decimals": 0,
-                "color": {"mode": "fixed", "fixedColor": "text"},
+                "unit": "percent",
+                "min": 0,
+                "max": 100,
+                "decimals": 1,
+                "thresholds": _threshold_steps([75, 85, 95]),
             },
             "overrides": [],
         },
     }
 
 
-def timeseries_builds_per_day() -> dict:
+def timeseries_builds_over_time(variant_tags: list) -> dict:
     return {
         "type": "timeseries",
-        "title": "Builds per day",
+        "title": "Builds over time",
         "datasource": DS,
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 7},
-        "targets": _target(queries.builds_per_day()),
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 13},
+        "targets": _target(queries.builds_over_time(variant_tags)),
         "options": {
             "legend": {"showLegend": True},
             "tooltip": {"mode": "single"},
@@ -339,7 +364,7 @@ def timeseries_builds_per_day() -> dict:
                 "custom": {
                     "drawStyle": "bars",
                     "fillOpacity": 55,
-                    "lineWidth": 0,
+                    "lineWidth": 2,
                     "showPoints": "auto",
                     "axisSoftMin": 0,
                     "gradientMode": "scheme",
@@ -353,27 +378,97 @@ def timeseries_builds_per_day() -> dict:
     }
 
 
-def barchart_by_hour() -> dict:
+def barchart_by_hour(variant_tags: list) -> dict:
     return _bars_by_category(
-        "By hour of day", queries.builds_by_hour(), {"h": 7, "w": 12, "x": 0, "y": 15}
+        "By hour of day", queries.builds_by_hour(variant_tags), {"h": 7, "w": 12, "x": 0, "y": 21}
     )
 
 
-def barchart_by_weekday() -> dict:
+def barchart_by_weekday(variant_tags: list) -> dict:
     return _bars_by_category(
-        "By weekday", queries.builds_by_weekday(), {"h": 7, "w": 12, "x": 12, "y": 15}
+        "By weekday", queries.builds_by_weekday(variant_tags), {"h": 7, "w": 12, "x": 12, "y": 21}
     )
 
 
-def table_authors() -> dict:
-    return _table("Who builds", queries.builds_by("author"), {"h": 8, "w": 8, "x": 0, "y": 22})
-
-
-def table_branches() -> dict:
+def table_authors(variant_tags: list) -> dict:
     return _table(
-        "Busiest branches", queries.builds_by("branch"), {"h": 8, "w": 8, "x": 8, "y": 22}
+        "Who builds", queries.builds_by("author", variant_tags), {"h": 8, "w": 8, "x": 0, "y": 28}
     )
 
 
-def table_origins() -> dict:
-    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 22})
+def table_branches(variant_tags: list) -> dict:
+    return _table(
+        "Busiest branches", queries.builds_by("branch", variant_tags),
+        {"h": 8, "w": 8, "x": 8, "y": 28},
+    )
+
+
+def table_origins(variant_tags: list) -> dict:
+    return _table(
+        "Where from", queries.builds_by("origin", variant_tags), {"h": 8, "w": 8, "x": 16, "y": 28}
+    )
+
+
+def timeseries_fullness(variant_tags: list) -> dict:
+    """The long view: how close each memory area has been running to its limit.
+
+    Its own time range, longer than the dashboard's: the rest of this dashboard
+    answers "what happened today", and this one only means anything over months.
+    """
+    return {
+        "type": "timeseries",
+        "title": "How full, per memory area",
+        "datasource": DS,
+        "gridPos": {"h": 10, "w": 16, "x": 0, "y": 36},
+        "timeFrom": "90d",
+        "targets": _target(queries.fullness_over_time(variant_tags)),
+        "options": {
+            "legend": {
+                "displayMode": "table",
+                "placement": "right",
+                "showLegend": True,
+                "calcs": ["lastNotNull", "max"],
+            },
+            "tooltip": {"mode": "multi", "sort": "desc"},
+        },
+        "fieldConfig": {
+            "defaults": {
+                "unit": "percent",
+                "min": 0,
+                "max": 100,
+                "decimals": 1,
+                "custom": {
+                    "drawStyle": "line",
+                    "lineWidth": 2,
+                    "fillOpacity": 10,
+                    "showPoints": "auto",
+                    "pointSize": 5,
+                    "spanNulls": True,
+                },
+                "color": {"mode": "palette-classic"},
+                "thresholds": _threshold_steps([75, 85, 95]),
+            },
+            "overrides": [],
+        },
+    }
+
+
+def table_tightest_regions(variant_tags: list) -> dict:
+    """Which regions to worry about."""
+    return _table(
+        "Tightest regions",
+        queries.tightest_regions(variant_tags),
+        {"h": 10, "w": 8, "x": 16, "y": 36},
+        overrides=[
+            {
+                "matcher": {"id": "byName", "options": "Peak %"},
+                "properties": [
+                    {"id": "unit", "value": "percent"},
+                    {"id": "max", "value": 100},
+                    {"id": "min", "value": 0},
+                    {"id": "thresholds", "value": _threshold_steps([75, 85, 95])},
+                    {"id": "custom.cellOptions", "value": {"type": "gauge", "mode": "gradient"}},
+                ],
+            },
+        ],
+    )

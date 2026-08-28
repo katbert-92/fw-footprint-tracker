@@ -244,60 +244,138 @@ def simple_values(column: str, table: str = "memory_points") -> str:
 # ── Activity ────────────────────────────────────────────────────────────────
 #
 # A second dashboard, about the flow of builds rather than about memory: when
-# they happen, who makes them, what landed. Deliberately not filtered by the
-# variant dimensions -- the question here is "what is going on in this project",
-# and splitting it per build variant would answer a different one.
-
-ACTIVITY_FILTER = "WHERE project = '$project'\n  AND $__timeFilter(built_at)"
+# they happen, who makes them, and how much room is left. It carries the same
+# filters as the memory dashboard -- without them the memory panels would be
+# adding up boards that have nothing in common.
 
 
-def activity_totals() -> str:
+def _activity_filter(variant_tags: list, table: str = "builds") -> str:
+    """The dashboard filters, for a query over builds or over memory_points."""
+    lines = ["  WHERE project = '$project'"]
+    lines += [f"    AND {_dimension(tag)} = '${tag}'" for tag in variant_tags]
+    lines += [
+        "    AND branch IN (${branch:sqlstring})",
+        "    AND origin IN (${origin:sqlstring})",
+        "    AND COALESCE(author, '(none)') IN (${author:sqlstring})",
+    ]
+    if table == "memory_points":
+        lines.append("    AND region IN (${region:sqlstring})")
+
+    lines.append("    AND $__timeFilter(built_at)")
+    return "\n".join(lines)
+
+
+def activity_totals(variant_tags: list) -> str:
     """One row of counters for the stat panel."""
     return f"""SELECT count(*)                  AS "Builds",
        count(DISTINCT commit)         AS "Commits",
        count(DISTINCT branch)         AS "Branches",
        count(DISTINCT COALESCE(author, '(none)')) AS "Authors"
 FROM builds
-{ACTIVITY_FILTER}"""
+{_activity_filter(variant_tags)}"""
 
 
-def builds_per_day() -> str:
-    return f"""SELECT date_trunc('day', built_at) AS time,
+def builds_over_time(variant_tags: list) -> str:
+    """How many builds landed, bucketed to whatever the time range deserves.
+
+    $__interval rather than a fixed hour: two days of history want hourly bars,
+    a quarter wants daily ones, and a fixed bucket is wrong for one of them.
+    """
+    return f"""SELECT $__timeGroup(built_at, $__interval) AS time,
        count(*) AS value,
        'builds' AS metric
 FROM builds
-{ACTIVITY_FILTER}
+{_activity_filter(variant_tags)}
 GROUP BY 1
 ORDER BY 1"""
 
 
-def builds_by_hour() -> str:
+def builds_by_hour(variant_tags: list) -> str:
     """Which hours of the day builds land in, local to the database."""
     return f"""SELECT to_char(built_at, 'HH24') AS hour,
        count(*) AS builds
 FROM builds
-{ACTIVITY_FILTER}
+{_activity_filter(variant_tags)}
 GROUP BY 1
 ORDER BY 1"""
 
 
-def builds_by_weekday() -> str:
+def builds_by_weekday(variant_tags: list) -> str:
     # Grouped by the number as well so the days come out in week order rather
     # than alphabetically; a bar chart keeps the row order it is given.
     return f"""SELECT to_char(built_at, 'Dy') AS day,
        count(*) AS builds
 FROM builds
-{ACTIVITY_FILTER}
+{_activity_filter(variant_tags)}
 GROUP BY 1, extract(isodow from built_at)
 ORDER BY extract(isodow from built_at)"""
 
 
-def builds_by(column: str, limit: int = 15) -> str:
+def builds_by(column: str, variant_tags: list, limit: int = 15) -> str:
     """Who or what most of the builds come from."""
     return f"""SELECT COALESCE({column}, '(none)') AS name,
        count(*) AS builds
 FROM builds
-{ACTIVITY_FILTER}
+{_activity_filter(variant_tags)}
 GROUP BY 1
 ORDER BY 2 DESC
 LIMIT {int(limit)}"""
+
+
+def fullness_over_time(variant_tags: list) -> str:
+    """How full the fullest region of each area was, day by day.
+
+    Percentages rather than bytes, and the maximum rather than the average: the
+    question is "are we running out", and an average over the regions of an area
+    hides the one that is.
+    """
+    return f"""SELECT date_trunc('day', built_at) AS time,
+       area AS metric,
+       max(pcnt) AS value
+FROM memory_points
+{_activity_filter(variant_tags, table="memory_points")}
+    AND pcnt IS NOT NULL
+GROUP BY 1, 2
+ORDER BY 1"""
+
+
+def tightest_regions(variant_tags: list, limit: int = 12) -> str:
+    """The regions closest to their ceiling."""
+    return f"""SELECT area AS "Area",
+       region AS "Region",
+       round(max(pcnt), 1) AS "Peak %",
+       round(min(total - used) / 1024.0, 1) AS "Free KiB",
+       count(DISTINCT build_id) AS "Builds"
+FROM memory_points
+{_activity_filter(variant_tags, table="memory_points")}
+    AND pcnt IS NOT NULL
+GROUP BY 1, 2
+ORDER BY 3 DESC
+LIMIT {int(limit)}"""
+
+
+def area_totals(variant_tags: list) -> str:
+    """How full each memory area is as a whole, on the most recent build.
+
+    Regions of an area are summed within one build and never across builds: two
+    builds of the same variant are two measurements of the same memory, not
+    twice as much of it.
+    """
+    return f"""WITH per_build AS (
+  SELECT area,
+         built_at,
+         sum(used) AS used,
+         sum(total) AS total
+  FROM memory_points
+{_activity_filter(variant_tags, table="memory_points")}
+    AND total IS NOT NULL
+  GROUP BY area, built_at
+)
+SELECT DISTINCT ON (area)
+       built_at AS time,
+       round(100.0 * used / total, 1) AS value,
+       area AS metric
+FROM per_build
+WHERE total > 0
+ORDER BY area, built_at DESC
+"""

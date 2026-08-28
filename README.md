@@ -212,11 +212,16 @@ private copy; port anything worth keeping back into the generator.
 | Region usage | how full each region is at its last build, against its thresholds |
 | Usage over time | bytes per region and branch, with a capacity line |
 | By build | bytes per region per build |
-| Delta vs previous | change against the previous build **on the same branch** |
+| Delta vs previous | change against the previous build **of the same branch and variant** |
 
 The gauges are the front page; the history sits in a collapsed row below them,
 because the first question is "is anything running out", and only the answer
 "yes" leads to the second.
+
+Deltas are computed over the whole history and filtered by the dashboard's time
+range afterwards, so a build still shows what it cost when the build before it
+falls outside the window — which is most of them, since a branch and variant
+usually build once a day.
 
 Every time panel is marked where the compiler changed — the answer to "all
 regions grew at once, did we change toolchain?" belongs on the chart the jump is
