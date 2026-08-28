@@ -46,3 +46,10 @@ include = ["fwtrack*"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+# Listed rather than left to the default, which shifts between ruff releases:
+# an upgrade should not start failing commits on its own. BLE001 is left out
+# deliberately -- every `except Exception` here is a top-level handler that
+# turns a traceback into one readable line.
+select = ["E", "W", "F", "I", "UP", "B"]

@@ -26,7 +26,7 @@ class MapParser:
     def _load_map_data(self) -> None:
         logger.info(f"Loading map file: {self.map_file_path}")
         try:
-            with open(self.map_file_path, "r") as f:
+            with open(self.map_file_path) as f:
                 self.map_lines = f.readlines()
             logger.info(f"File {self.map_file_path} successfully loaded")
         except FileNotFoundError:

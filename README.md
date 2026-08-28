@@ -4,7 +4,7 @@ Track embedded firmware memory footprint across builds, and see per-branch
 trends in Grafana. Answers *where did the memory go?* before the linker does it
 for you.
 
-```
+```text
    your build                      your server
 ┌──────────────┐            ┌──────────────────────┐
 │ fw.elf       │──fwtrack──▶│  ingest ─┐           │
@@ -167,7 +167,7 @@ identical from the dashboard.
 
 ### Data model
 
-```
+```text
 builds          per build: project, time, commit, branch, author, version,
                 origin, dirty, toolchain, dimensions in a JSONB column
 memory_usage    per region of a build: used, total (null if unknown)
