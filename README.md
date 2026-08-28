@@ -209,7 +209,7 @@ private copy; port anything worth keeping back into the generator.
 
 | Panel | |
 | --- | --- |
-| Region usage | how full each region is, against its thresholds |
+| Region usage | how full each region is at its last build, against its thresholds |
 | Usage over time | bytes per region and branch, with a capacity line |
 | By build | bytes per region per build |
 | Delta vs previous | change against the previous build **on the same branch** |

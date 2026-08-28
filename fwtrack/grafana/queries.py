@@ -83,12 +83,24 @@ ORDER BY 1"""
 
 
 def usage_gauge(variant_tags: list) -> str:
-    return f"""SELECT built_at AS time,
-       pcnt AS value,
-       region AS metric
-FROM memory_points
+    """How full each region is, as of its most recent build.
+
+    DISTINCT ON keeps one row per region rather than letting the panel reduce a
+    whole history to its last point: with several branches selected those
+    histories interleave, and "the last value" would silently be whichever
+    branch happened to build most recently. One row per region, and the branch
+    in the series name, so the gauge says whose measurement it is showing.
+    """
+    return f"""SELECT time, value, metric
+FROM (
+  SELECT DISTINCT ON (region) built_at AS time,
+         pcnt AS value,
+         region || ' · ' || branch AS metric
+  FROM memory_points
 {_filters(variant_tags)}
     AND area = '$area'
+  ORDER BY region, built_at DESC
+) latest
 ORDER BY 1"""
 
 

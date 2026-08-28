@@ -4,6 +4,8 @@ Series names come from the SQL `metric` column, so none of the panels need the
 displayName gymnastics a schemaless backend forces on you.
 """
 
+import re
+
 from . import queries
 
 DS = {"type": "grafana-postgresql-datasource", "uid": "${datasource}"}
@@ -35,9 +37,12 @@ def _threshold_steps(values: list, base: str = "green") -> dict:
 
 
 def bargauge_usage(variant_tags: list, region_limits: dict) -> dict:
+    # byRegexp, not byName: the series is "REGION · branch", so an exact match
+    # would stop finding it and every region would fall back to the panel's
+    # default thresholds.
     overrides = [
         {
-            "matcher": {"id": "byName", "options": region},
+            "matcher": {"id": "byRegexp", "options": f"^{re.escape(region)}( ·.*)?$"},
             "properties": [{"id": "thresholds", "value": _threshold_steps(thresholds)}],
         }
         for region, (_, thresholds) in sorted(region_limits.items())
@@ -46,7 +51,7 @@ def bargauge_usage(variant_tags: list, region_limits: dict) -> dict:
 
     return {
         "type": "bargauge",
-        "title": "Region usage — $area",
+        "title": "Region usage, last build — $area",
         "datasource": DS,
         "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
         "repeat": "area",
@@ -91,7 +96,7 @@ def timeseries_trend(variant_tags: list) -> dict:
         "type": "timeseries",
         "title": "Usage over time — $area",
         "datasource": DS,
-        "gridPos": {"h": 10, "w": 14, "x": 0, "y": 9},
+        "gridPos": {"h": 10, "w": 24, "x": 0, "y": 9},
         "targets": _target(queries.trend(variant_tags))
         + _target(queries.area_capacity(variant_tags), ref="B"),
         "options": {
@@ -114,6 +119,9 @@ def timeseries_trend(variant_tags: list) -> dict:
                 # split the series onto separate axes, where two lines drawn at
                 # different scales look parallel however far apart they are.
                 "unit": "bytes",
+                # A region moves by hundreds of bytes at a time, and whole KiB
+                # round several builds into the same number.
+                "decimals": 1,
                 "custom": {
                     "drawStyle": "line",
                     "lineWidth": 2,
@@ -167,6 +175,7 @@ def _bars(title: str, sql: str, grid: dict) -> dict:
         "fieldConfig": {
             "defaults": {
                 "unit": "bytes",
+                "decimals": 1,
                 "custom": {
                     "drawStyle": "bars",
                     "fillOpacity": 85,
@@ -182,18 +191,54 @@ def _bars(title: str, sql: str, grid: dict) -> dict:
 
 
 def barchart_by_build(variant_tags: list) -> dict:
-    return _bars(
-        "By build — $area",
-        queries.by_build(variant_tags),
-        {"h": 10, "w": 10, "x": 14, "y": 9},
-    )
+    """Bytes per region per build, one bar group per build.
+
+    A barchart rather than a time series: the x axis here is the build, not the
+    calendar. Builds come in bursts and then nothing for a day, and on a time
+    axis that reads as a wall of bars followed by emptiness.
+    """
+    return {
+        "type": "barchart",
+        "title": "By build — $area",
+        "datasource": DS,
+        "gridPos": {"h": 10, "w": 24, "x": 0, "y": 19},
+        "targets": _target(queries.by_build(variant_tags)),
+        "options": {
+            "orientation": "auto",
+            "showValue": "always",
+            "stacking": "none",
+            "barRadius": 0.1,
+            "barWidth": 0.87,
+            "groupWidth": 0.88,
+            "fullHighlight": False,
+            "xTickLabelRotation": 0,
+            # Without spacing every build gets a label and they overlap into a
+            # grey smear.
+            "xTickLabelSpacing": 100,
+            "legend": {
+                "displayMode": "table",
+                "placement": "right",
+                "showLegend": True,
+                "calcs": ["lastNotNull", "min", "max"],
+            },
+            "tooltip": {"mode": "single"},
+        },
+        "fieldConfig": {
+            "defaults": {
+                "unit": "bytes",
+                "decimals": 1,
+                "custom": {"fillOpacity": 100, "lineWidth": 0},
+            },
+            "overrides": [],
+        },
+    }
 
 
 def barchart_delta(variant_tags: list) -> dict:
     return _bars(
         "Delta vs previous build — $area",
         queries.delta_by_build(variant_tags),
-        {"h": 8, "w": 24, "x": 0, "y": 19},
+        {"h": 8, "w": 24, "x": 0, "y": 29},
     )
 
 
