@@ -135,12 +135,45 @@ WHERE deltas.delta IS NOT NULL
 ORDER BY 1"""
 
 
+def toolchain_changes(variant_tags: list) -> str:
+    """When the compiler changed, as a Grafana annotation.
+
+    A value that changes twice a year has no business being a column on a
+    thousand rows. As a mark on the time axis it answers the question it is
+    actually asked -- "everything grew here, did we change compiler?" -- on the
+    chart where the jump is seen, rather than in a table somewhere else.
+
+    LAG runs over the whole history and the time filter is applied after it, so
+    a change is still reported when the build before it falls outside the range.
+    Partitioned by variant: different platforms may well be built with different
+    toolchains, and ordering those into one sequence would mark every build as a
+    change.
+    """
+    conditions = ["project = '$project'", "toolchain IS NOT NULL"]
+    conditions += [f"{_dimension(tag)} = '${tag}'" for tag in variant_tags]
+
+    return f"""SELECT built_at AS time,
+       'Toolchain: ' || toolchain AS text
+FROM (
+  SELECT built_at,
+         toolchain,
+         LAG(toolchain) OVER (ORDER BY built_at) AS previous
+  FROM builds
+  WHERE {" AND ".join(conditions)}
+) changes
+WHERE previous IS DISTINCT FROM toolchain
+  AND previous IS NOT NULL
+  AND $__timeFilter(built_at)
+ORDER BY 1"""
+
+
 def builds_table(variant_tags: list) -> str:
     return f"""SELECT built_at AS time,
        commit,
        branch,
        author,
        version,
+       dirty,
        area,
        region,
        used,

@@ -138,6 +138,24 @@ def build_variables(project: str, variant_tags: list, datasource_uid: str) -> li
     return variables
 
 
+def annotation_toolchain(variant_tags: list) -> dict:
+    """A dashed line on every time panel where the compiler changed."""
+    return {
+        "name": "Toolchain",
+        "datasource": {"type": "grafana-postgresql-datasource", "uid": "${datasource}"},
+        "enable": True,
+        "hide": False,
+        "iconColor": "purple",
+        "target": {
+            "refId": "annotation-toolchain",
+            "rawSql": queries.toolchain_changes(variant_tags),
+            "rawQuery": True,
+            "format": "table",
+            "editorMode": "code",
+        },
+    }
+
+
 def build_dashboard(project: str, variant_tags: list, areas: list,
                     limits: dict, datasource_uid: str) -> dict:
     # Repeated panels split the top row evenly between the memory areas.
@@ -162,6 +180,7 @@ def build_dashboard(project: str, variant_tags: list, areas: list,
         # broken dashboard.
         "time": {"from": "now-90d", "to": "now"},
         "templating": {"list": build_variables(project, variant_tags, datasource_uid)},
+        "annotations": {"list": [annotation_toolchain(variant_tags)]},
         "panels": [
             panels.stat_last_delta(variant_tags, width),
             panels.bargauge_usage(variant_tags, width, limits),

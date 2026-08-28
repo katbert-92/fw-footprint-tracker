@@ -130,6 +130,7 @@ def table_builds(variant_tags: list) -> dict:
                 rename("branch", "Branch"),
                 rename("author", "Author"),
                 rename("version", "Version"),
+                rename("dirty", "Uncommitted"),
                 rename("area", "Area"),
                 rename("region", "Region"),
                 {

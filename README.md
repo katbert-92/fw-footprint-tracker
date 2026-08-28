@@ -150,6 +150,16 @@ private copy; port anything worth keeping back into the generator.
 | By build | bytes per region per build |
 | Delta vs previous | change against the previous build **on the same branch** |
 
+Every time panel is marked where the compiler changed — the answer to "all
+regions grew at once, did we change toolchain?" belongs on the chart the jump is
+seen on, not in a table. The mark appears only where the value actually changed,
+so a toolchain that holds for a year draws one line rather than a thousand.
+
+The build list carries an **Uncommitted** column instead: that one is a property
+of a single measurement, not a moment in time. A build made with uncommitted
+changes does not correspond to any commit, and its point is placed at the build
+time rather than the commit time so that local iterations stay separate.
+
 Variable lists follow the dashboard time range, so a project with thousands of
 dead branches stays usable.
 
