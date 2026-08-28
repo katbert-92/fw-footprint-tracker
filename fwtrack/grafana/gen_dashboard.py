@@ -55,7 +55,9 @@ def parse_args():
     parser.add_argument("--push", action="store_true", help="Upload into a running Grafana")
     parser.add_argument("--folder-uid", help="Grafana folder to upload into")
     parser.add_argument(
-        "--variant-tags", help="Comma separated dimensions, overriding what the database reports"
+        "--variant-tags",
+        help="Comma separated dimensions, in the order their filters should narrow each other. "
+        "Remembered for the project, so later regenerations keep it",
     )
     parser.add_argument(
         "--exclude-tags",
@@ -222,11 +224,23 @@ def main():
             logger.error("Schema is missing; apply deploy/schema.sql first")
             sys.exit(1)
 
-        variant_tags = (
-            [t.strip() for t in args.variant_tags.split(",") if t.strip()]
-            if args.variant_tags
-            else db.discover_variant_tags(conn, args.project)
-        )
+        discovered = db.discover_variant_tags(conn, args.project)
+
+        # An order given here replaces the stored one; otherwise the stored one
+        # stands, so regenerating never silently reshuffles a dashboard.
+        chosen = [t.strip() for t in (args.variant_tags or "").split(",") if t.strip()]
+        if chosen:
+            db.set_variant_tag_order(conn, args.project, chosen)
+            logger.info(f"Filter order stored for '{args.project}': {', '.join(chosen)}")
+        else:
+            chosen = db.variant_tag_order(conn, args.project)
+
+        # The order decides order only. A dimension the project stopped
+        # recording drops out on its own, and one it started recording since
+        # appears at the end rather than going missing until someone notices.
+        variant_tags = [t for t in chosen if t in discovered]
+        variant_tags += [t for t in discovered if t not in variant_tags]
+
         areas = db.discover_areas(conn, args.project)
         limits = db.region_limits(conn, args.project)
 

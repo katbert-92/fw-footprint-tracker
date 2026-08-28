@@ -11,6 +11,8 @@
 #   ./fwtrack.sh tags rename-value --project blinky adeq 52362d NB_B100.EXTLOCK
 #   ./fwtrack.sh tags drop-build 1090              delete one build and its regions
 #   ./fwtrack.sh dash --project blinky             regenerate its dashboard
+#   ./fwtrack.sh dash --project blinky --variant-tags tag,platform,type,adeq
+#                                                  ... and set the filter order
 #   ./fwtrack.sh check                             services, schema, data
 #   ./fwtrack.sh logs | down | restart | token
 #

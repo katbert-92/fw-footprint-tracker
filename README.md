@@ -153,6 +153,26 @@ private copy; port anything worth keeping back into the generator.
 Variable lists follow the dashboard time range, so a project with thousands of
 dead branches stays usable.
 
+### Filter order
+
+The dimension filters are sequential. The first offers every value it has; each
+one after it offers only the values that occur together with what is already
+chosen. Choose `adeq` first and the platform list narrows to the platforms that
+feature set was built for — which is backwards if you think in hardware first,
+and it is not obvious from the dashboard that this is what happened.
+
+So the widest thing a build belongs to goes first, the most specific last. Set
+it once, in the order the filters should cascade:
+
+```bash
+./fwtrack.sh dash --project blinky --variant-tags platform,type,tag,adeq
+```
+
+Stored with the project, so later regenerations keep it. It decides order only:
+a dimension the project stopped recording drops out on its own, and one it
+started recording since appears at the end rather than going missing. To leave
+one out of the filters entirely, `--exclude-tags`.
+
 ## Operations
 
 | | |

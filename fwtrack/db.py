@@ -439,5 +439,43 @@ def delete_build(conn: psycopg.Connection, build_id: int, dry_run: bool = False)
     return {"id": build_id, "project": project, "commit": commit, "built_at": built_at}
 
 
+# Created on use rather than by a migration: deployments predating this table
+# would otherwise need a hand-applied ALTER before the next dashboard could be
+# generated, and schema.sql only ever runs on an empty database.
+SETTINGS_TABLE = """
+CREATE TABLE IF NOT EXISTS project_settings (
+    project      TEXT        PRIMARY KEY,
+    variant_tags TEXT[],
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+"""
+
+
+def variant_tag_order(conn: psycopg.Connection, project: str) -> list:
+    """The filter order stored for this project, or an empty list."""
+    with conn.cursor() as cur:
+        cur.execute(SETTINGS_TABLE)
+        cur.execute("SELECT variant_tags FROM project_settings WHERE project = %s", (project,))
+        row = cur.fetchone()
+
+    conn.commit()
+    return list(row[0]) if row and row[0] else []
+
+
+def set_variant_tag_order(conn: psycopg.Connection, project: str, tags: list) -> None:
+    with conn.cursor() as cur:
+        cur.execute(SETTINGS_TABLE)
+        cur.execute(
+            """
+            INSERT INTO project_settings (project, variant_tags) VALUES (%s, %s)
+            ON CONFLICT (project) DO UPDATE
+                SET variant_tags = EXCLUDED.variant_tags, updated_at = now()
+            """,
+            (project, list(tags)),
+        )
+
+    conn.commit()
+
+
 def list_projects(conn: psycopg.Connection) -> list:
     return fetch_column(conn, "SELECT DISTINCT project FROM builds ORDER BY 1")
