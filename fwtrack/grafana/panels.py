@@ -296,13 +296,13 @@ def _bars_by_category(title: str, sql: str, grid: dict) -> dict:
     }
 
 
-def stat_activity_totals(variant_tags: list) -> dict:
+def stat_activity_totals() -> dict:
     return {
         "type": "stat",
         "title": "Common",
         "datasource": DS,
         "gridPos": {"h": 7, "w": 24, "x": 0, "y": 0},
-        "targets": _target(queries.activity_totals(variant_tags), table=True),
+        "targets": _target(queries.activity_totals(), table=True),
         "options": {
             "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/.*/", "values": False},
             "orientation": "vertical",
@@ -318,14 +318,14 @@ def stat_activity_totals(variant_tags: list) -> dict:
     }
 
 
-def bargauge_area_totals(variant_tags: list) -> dict:
+def bargauge_area_totals(variant_tags: list, pins: dict) -> dict:
     """One bar per memory area: how full it is as a whole, on the latest build."""
     return {
         "type": "bargauge",
         "title": "Memory areas, last build",
         "datasource": DS,
         "gridPos": {"h": 6, "w": 24, "x": 0, "y": 7},
-        "targets": _target(queries.area_totals(variant_tags)),
+        "targets": _target(queries.area_totals(variant_tags, pins)),
         "options": {
             "displayMode": "gradient",
             "orientation": "horizontal",
@@ -346,13 +346,13 @@ def bargauge_area_totals(variant_tags: list) -> dict:
     }
 
 
-def timeseries_builds_over_time(variant_tags: list) -> dict:
+def timeseries_builds_over_time() -> dict:
     return {
         "type": "timeseries",
         "title": "Builds over time",
         "datasource": DS,
         "gridPos": {"h": 8, "w": 24, "x": 0, "y": 13},
-        "targets": _target(queries.builds_over_time(variant_tags)),
+        "targets": _target(queries.builds_over_time()),
         "options": {
             "legend": {"showLegend": True},
             "tooltip": {"mode": "single"},
@@ -378,38 +378,38 @@ def timeseries_builds_over_time(variant_tags: list) -> dict:
     }
 
 
-def barchart_by_hour(variant_tags: list) -> dict:
+def barchart_by_hour() -> dict:
     return _bars_by_category(
-        "By hour of day", queries.builds_by_hour(variant_tags), {"h": 7, "w": 12, "x": 0, "y": 21}
+        "By hour of day", queries.builds_by_hour(), {"h": 7, "w": 12, "x": 0, "y": 21}
     )
 
 
-def barchart_by_weekday(variant_tags: list) -> dict:
+def barchart_by_weekday() -> dict:
     return _bars_by_category(
-        "By weekday", queries.builds_by_weekday(variant_tags), {"h": 7, "w": 12, "x": 12, "y": 21}
+        "By weekday", queries.builds_by_weekday(), {"h": 7, "w": 12, "x": 12, "y": 21}
     )
 
 
-def table_authors(variant_tags: list) -> dict:
+def table_authors() -> dict:
     return _table(
-        "Who builds", queries.builds_by("author", variant_tags), {"h": 8, "w": 8, "x": 0, "y": 28}
+        "Who builds", queries.builds_by("author"), {"h": 8, "w": 8, "x": 0, "y": 28}
     )
 
 
-def table_branches(variant_tags: list) -> dict:
+def table_branches() -> dict:
     return _table(
-        "Busiest branches", queries.builds_by("branch", variant_tags),
+        "Busiest branches", queries.builds_by("branch"),
         {"h": 8, "w": 8, "x": 8, "y": 28},
     )
 
 
-def table_origins(variant_tags: list) -> dict:
+def table_origins() -> dict:
     return _table(
-        "Where from", queries.builds_by("origin", variant_tags), {"h": 8, "w": 8, "x": 16, "y": 28}
+        "Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 28}
     )
 
 
-def timeseries_fullness(variant_tags: list) -> dict:
+def timeseries_fullness(variant_tags: list, pins: dict) -> dict:
     """The long view: how close each memory area has been running to its limit.
 
     Its own time range, longer than the dashboard's: the rest of this dashboard
@@ -421,7 +421,7 @@ def timeseries_fullness(variant_tags: list) -> dict:
         "datasource": DS,
         "gridPos": {"h": 10, "w": 16, "x": 0, "y": 36},
         "timeFrom": "90d",
-        "targets": _target(queries.fullness_over_time(variant_tags)),
+        "targets": _target(queries.fullness_over_time(variant_tags, pins)),
         "options": {
             "legend": {
                 "displayMode": "table",
@@ -453,11 +453,11 @@ def timeseries_fullness(variant_tags: list) -> dict:
     }
 
 
-def table_tightest_regions(variant_tags: list) -> dict:
+def table_tightest_regions(variant_tags: list, pins: dict) -> dict:
     """Which regions to worry about."""
     return _table(
         "Tightest regions",
-        queries.tightest_regions(variant_tags),
+        queries.tightest_regions(variant_tags, pins),
         {"h": 10, "w": 8, "x": 16, "y": 36},
         overrides=[
             {

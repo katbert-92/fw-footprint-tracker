@@ -477,9 +477,13 @@ CREATE TABLE IF NOT EXISTS project_settings (
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 )
 """
-SETTINGS_COLUMNS = "ALTER TABLE project_settings ADD COLUMN IF NOT EXISTS main_branch TEXT"
+SETTINGS_COLUMNS = """
+ALTER TABLE project_settings
+    ADD COLUMN IF NOT EXISTS main_branch TEXT,
+    ADD COLUMN IF NOT EXISTS overview_pins TEXT[]
+"""
 
-SETTINGS = ("variant_tags", "main_branch")
+SETTINGS = ("variant_tags", "main_branch", "overview_pins")
 
 
 def project_settings(conn: psycopg.Connection, project: str) -> dict:

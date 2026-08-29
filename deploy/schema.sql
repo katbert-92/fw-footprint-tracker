@@ -68,6 +68,10 @@ CREATE TABLE IF NOT EXISTS project_settings (
     -- The branch a dashboard opens on. Every project has one that matters more
     -- than the rest, and opening on "all branches" buries it.
     main_branch  TEXT,
+    -- Dimensions the overview dashboard fixes instead of offering as filters,
+    -- as KEY=VALUE. Most projects always mean one slice -- the trunk branch,
+    -- the production tag, the application rather than the bootloader.
+    overview_pins TEXT[],
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

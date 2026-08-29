@@ -249,33 +249,66 @@ def simple_values(column: str, table: str = "memory_points") -> str:
 # adding up boards that have nothing in common.
 
 
-def _activity_filter(variant_tags: list, table: str = "builds") -> str:
-    """The dashboard filters, for a query over builds or over memory_points."""
-    lines = ["  WHERE project = '$project'"]
-    lines += [f"    AND {_dimension(tag)} = '${tag}'" for tag in variant_tags]
-    lines += [
-        "    AND branch IN (${branch:sqlstring})",
-        "    AND origin IN (${origin:sqlstring})",
-        "    AND COALESCE(author, '(none)') IN (${author:sqlstring})",
-    ]
-    if table == "memory_points":
-        lines.append("    AND region IN (${region:sqlstring})")
+# Two filters, because this dashboard answers two questions.
+#
+# How much work is happening is a question about the project: narrowing it to
+# one variant and one branch turns "1500 builds" into "59" and answers nothing
+# anybody asked. How much memory is left is the opposite -- a bootloader on one
+# board and an application on another have different memories, and a number
+# spanning both is meaningless.
+#
+# No region filter in either: this dashboard has no region variable, and every
+# panel here is about whole areas.
 
+FLOW_FILTER = "  WHERE project = '$project'\n    AND $__timeFilter(built_at)"
+
+# Columns of `builds` that can be pinned like a dimension can.
+PINNABLE_COLUMNS = ("branch", "origin", "version", "toolchain")
+
+
+def _literal(value: str) -> str:
+    """A string safe to paste into generated SQL."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _memory_filter(variant_tags: list, pins: dict | None = None) -> str:
+    """Filters for the panels about how much memory is left.
+
+    A pinned dimension is written into the query instead of becoming a
+    dropdown. Most projects have a slice they always mean -- the trunk branch,
+    the production tag, the application rather than the bootloader -- and
+    turning each of those into a filter makes the reader choose them again
+    every time, and lets them choose a combination nobody wanted.
+
+    What is not pinned stays a filter, which is how a project keeps the one
+    dimension it does want to flip between.
+    """
+    pins = pins or {}
+    lines = ["  WHERE project = '$project'"]
+    for tag in variant_tags:
+        value = f"{_literal(pins[tag])}" if tag in pins else f"'${tag}'"
+        lines.append(f"    AND {_dimension(tag)} = {value}")
+
+    lines += [
+        f"    AND {column} = {_literal(pins[column])}"
+        for column in PINNABLE_COLUMNS
+        if column in pins
+    ]
     lines.append("    AND $__timeFilter(built_at)")
     return "\n".join(lines)
 
 
-def activity_totals(variant_tags: list) -> str:
+def activity_totals() -> str:
     """One row of counters for the stat panel."""
     return f"""SELECT count(*)                  AS "Builds",
        count(DISTINCT commit)         AS "Commits",
        count(DISTINCT branch)         AS "Branches",
        count(DISTINCT COALESCE(author, '(none)')) AS "Authors"
 FROM builds
-{_activity_filter(variant_tags)}"""
+{FLOW_FILTER}"""
 
 
-def builds_over_time(variant_tags: list) -> str:
+def builds_over_time() -> str:
     """How many builds landed, bucketed to whatever the time range deserves.
 
     $__interval rather than a fixed hour: two days of history want hourly bars,
@@ -285,44 +318,44 @@ def builds_over_time(variant_tags: list) -> str:
        count(*) AS value,
        'builds' AS metric
 FROM builds
-{_activity_filter(variant_tags)}
+{FLOW_FILTER}
 GROUP BY 1
 ORDER BY 1"""
 
 
-def builds_by_hour(variant_tags: list) -> str:
+def builds_by_hour() -> str:
     """Which hours of the day builds land in, local to the database."""
     return f"""SELECT to_char(built_at, 'HH24') AS hour,
        count(*) AS builds
 FROM builds
-{_activity_filter(variant_tags)}
+{FLOW_FILTER}
 GROUP BY 1
 ORDER BY 1"""
 
 
-def builds_by_weekday(variant_tags: list) -> str:
+def builds_by_weekday() -> str:
     # Grouped by the number as well so the days come out in week order rather
     # than alphabetically; a bar chart keeps the row order it is given.
     return f"""SELECT to_char(built_at, 'Dy') AS day,
        count(*) AS builds
 FROM builds
-{_activity_filter(variant_tags)}
+{FLOW_FILTER}
 GROUP BY 1, extract(isodow from built_at)
 ORDER BY extract(isodow from built_at)"""
 
 
-def builds_by(column: str, variant_tags: list, limit: int = 15) -> str:
+def builds_by(column: str, limit: int = 15) -> str:
     """Who or what most of the builds come from."""
     return f"""SELECT COALESCE({column}, '(none)') AS name,
        count(*) AS builds
 FROM builds
-{_activity_filter(variant_tags)}
+{FLOW_FILTER}
 GROUP BY 1
 ORDER BY 2 DESC
 LIMIT {int(limit)}"""
 
 
-def fullness_over_time(variant_tags: list) -> str:
+def fullness_over_time(variant_tags: list, pins: dict | None = None) -> str:
     """How full the fullest region of each area was, day by day.
 
     Percentages rather than bytes, and the maximum rather than the average: the
@@ -333,13 +366,13 @@ def fullness_over_time(variant_tags: list) -> str:
        area AS metric,
        max(pcnt) AS value
 FROM memory_points
-{_activity_filter(variant_tags, table="memory_points")}
+{_memory_filter(variant_tags, pins)}
     AND pcnt IS NOT NULL
 GROUP BY 1, 2
 ORDER BY 1"""
 
 
-def tightest_regions(variant_tags: list, limit: int = 12) -> str:
+def tightest_regions(variant_tags: list, pins: dict | None = None, limit: int = 12) -> str:
     """The regions closest to their ceiling."""
     return f"""SELECT area AS "Area",
        region AS "Region",
@@ -347,14 +380,14 @@ def tightest_regions(variant_tags: list, limit: int = 12) -> str:
        round(min(total - used) / 1024.0, 1) AS "Free KiB",
        count(DISTINCT build_id) AS "Builds"
 FROM memory_points
-{_activity_filter(variant_tags, table="memory_points")}
+{_memory_filter(variant_tags, pins)}
     AND pcnt IS NOT NULL
 GROUP BY 1, 2
 ORDER BY 3 DESC
 LIMIT {int(limit)}"""
 
 
-def area_totals(variant_tags: list) -> str:
+def area_totals(variant_tags: list, pins: dict | None = None) -> str:
     """How full each memory area is as a whole, on the most recent build.
 
     Regions of an area are summed within one build and never across builds: two
@@ -367,7 +400,7 @@ def area_totals(variant_tags: list) -> str:
          sum(used) AS used,
          sum(total) AS total
   FROM memory_points
-{_activity_filter(variant_tags, table="memory_points")}
+{_memory_filter(variant_tags, pins)}
     AND total IS NOT NULL
   GROUP BY area, built_at
 )

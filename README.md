@@ -238,15 +238,36 @@ dead branches stays usable.
 
 ### Build activity
 
-`fwtrack-dash` writes a second dashboard alongside the first, about the flow of
-builds rather than what they weigh: how many land per day, at what hours and on
-which weekdays, and who and what they come from.
+`fwtrack-dash` writes a second dashboard alongside the first, about the state of
+the project rather than the detail of one region.
 
-No variant filters on it. "What is going on in this project" is a question about
-all of it, and answering it for one combination of dimensions would be answering
-something else. A per-build log is deliberately absent for the same reason in
-reverse: a project that builds a dozen variants per commit turns one into a
-dozen rows of the same hash.
+| Panel | |
+| --- | --- |
+| Common | builds, commits, branches and authors in the range |
+| Memory areas | how full each area is as a whole, on the latest build |
+| Builds over time | how many land, bucketed to the range |
+| By hour / by weekday | when the work happens |
+| Who builds / branches / origins | where the builds come from |
+| How full, per area | the long view, on its own 90-day range |
+| Tightest regions | what to worry about, worst first |
+
+The panels about the flow of work count the whole project. The ones about how
+much room is left cannot: a bootloader on one board and an application on
+another have different memories, and summing them invents a chip that does not
+exist. So they are narrowed — but to a slice the project fixes once, rather than
+to dropdowns to be set again on every visit:
+
+```bash
+./fwtrack.sh dash --project blinky --overview-pin tag=prd,type=app,branch=dev
+```
+
+Remembered with the project. Whatever is left unpinned stays a filter, which is
+how a project keeps the one dimension it does want to flip between — usually the
+board. Dimensions and the `branch`, `origin`, `version` and `toolchain` columns
+can all be pinned.
+
+A per-build log is deliberately absent: a project that builds a dozen variants
+per commit turns one build into a dozen rows of the same hash.
 
 ### Filter order
 
@@ -267,6 +288,16 @@ Stored with the project, so later regenerations keep it. It decides order only:
 a dimension the project stopped recording drops out on its own, and one it
 started recording since appears at the end rather than going missing. To leave
 one out of the filters entirely, `--exclude-tags`.
+
+Every project also has one branch that matters more than the rest, and opening on
+all of them buries it:
+
+```bash
+./fwtrack.sh dash --project blinky --main-branch dev
+```
+
+Remembered the same way, and used as what the branch filter is set to when the
+memory dashboard is opened.
 
 ## Operations
 
