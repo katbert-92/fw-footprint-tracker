@@ -248,7 +248,7 @@ the project rather than the detail of one region.
 | Builds over time | how many land, bucketed to the range |
 | By hour / by weekday | when the work happens |
 | Who builds / branches / origins | where the builds come from |
-| How full, per area | the long view, on its own 90-day range |
+| How full, per area | the same, over the dashboard's time range |
 | Tightest regions | what to worry about, worst first |
 
 The panels about the flow of work count the whole project. The ones about how

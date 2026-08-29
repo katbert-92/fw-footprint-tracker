@@ -410,17 +410,12 @@ def table_origins() -> dict:
 
 
 def timeseries_fullness(variant_tags: list, pins: dict) -> dict:
-    """The long view: how close each memory area has been running to its limit.
-
-    Its own time range, longer than the dashboard's: the rest of this dashboard
-    answers "what happened today", and this one only means anything over months.
-    """
+    """The long view: how close each memory area has been running to its limit."""
     return {
         "type": "timeseries",
         "title": "How full, per memory area",
         "datasource": DS,
         "gridPos": {"h": 10, "w": 16, "x": 0, "y": 36},
-        "timeFrom": "90d",
         "targets": _target(queries.fullness_over_time(variant_tags, pins)),
         "options": {
             "legend": {
