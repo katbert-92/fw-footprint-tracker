@@ -50,11 +50,18 @@ def parse_args():
         "--toolchain", default="", help="Override the toolchain recorded by fwtrack-analyse"
     )
     parser.add_argument(
-        "-C", "--repo", type=Path, default=Path("."),
+        "-C",
+        "--repo",
+        type=Path,
+        default=Path("."),
         help="Repository to read commit and dirty state from (default: current directory)",
     )
     parser.add_argument(
-        "-t", "--tag", action="append", default=[], metavar="KEY=VALUE",
+        "-t",
+        "--tag",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
         help="Custom tag, repeatable; overrides the config and FWTRACK_TAGS",
     )
     parser.add_argument(
@@ -99,11 +106,11 @@ def git_output(repo: Path, *args: str) -> str:
 # ref the runner checked out.
 CI_BRANCH_VARS = [
     "CI_MERGE_REQUEST_SOURCE_BRANCH_NAME",  # GitLab, merge request pipelines
-    "CI_COMMIT_BRANCH",                     # GitLab, branch pipelines
-    "CI_COMMIT_REF_NAME",                   # GitLab, tags included
-    "GITHUB_HEAD_REF",                      # GitHub, pull requests
-    "GITHUB_REF_NAME",                      # GitHub, pushes
-    "BRANCH_NAME",                          # Jenkins
+    "CI_COMMIT_BRANCH",  # GitLab, branch pipelines
+    "CI_COMMIT_REF_NAME",  # GitLab, tags included
+    "GITHUB_HEAD_REF",  # GitHub, pull requests
+    "GITHUB_REF_NAME",  # GitHub, pushes
+    "BRANCH_NAME",  # Jenkins
 ]
 DETACHED = "HEAD"
 
@@ -126,9 +133,7 @@ def branch_containing(repo: Path) -> str:
     Needs history, so a shallow CI clone finds nothing and the caller falls
     back to the tag name.
     """
-    listed = git_output(
-        repo, "branch", "--all", "--contains", "HEAD", "--format=%(refname:short)"
-    )
+    listed = git_output(repo, "branch", "--all", "--contains", "HEAD", "--format=%(refname:short)")
 
     names = []
     for line in listed.splitlines():
@@ -230,12 +235,18 @@ def resolve_timestamp(repo: Path, dirty: bool):
     return datetime.now(UTC)
 
 
-def build_record(meta: dict, config: dict, cli_tags: list, toolchain: str,
-                 repo: Path, project_override: str | None = None,
-                 version_override: str | None = None,
-                 branch_override: str | None = None,
-                 author_override: str | None = None,
-                 origin_override: str | None = None) -> dict:
+def build_record(
+    meta: dict,
+    config: dict,
+    cli_tags: list,
+    toolchain: str,
+    repo: Path,
+    project_override: str | None = None,
+    version_override: str | None = None,
+    branch_override: str | None = None,
+    author_override: str | None = None,
+    origin_override: str | None = None,
+) -> dict:
     """Everything about a build except the numbers.
 
     Only the tags come from the project's metadata file; the rest is read from
@@ -270,13 +281,15 @@ def region_records(usage: dict, config: dict) -> list:
     records = []
     for region, info in usage.items():
         area = resolve_area(region, config)
-        records.append({
-            "region": region,
-            "area": area,
-            "used": int(info["used"]),
-            "total": int(info["total"]),
-            "thresholds": resolve_thresholds(region, area, config),
-        })
+        records.append(
+            {
+                "region": region,
+                "area": area,
+                "used": int(info["used"]),
+                "total": int(info["total"]),
+                "thresholds": resolve_thresholds(region, area, config),
+            }
+        )
 
     return records
 

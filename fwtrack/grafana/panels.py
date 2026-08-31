@@ -459,15 +459,14 @@ def table_branches() -> dict:
     # No scope suffix on this one or the next: a panel that lists branches, or
     # where builds came from, says what it covers by listing it.
     return _table(
-        "Busiest branches", queries.builds_by("branch"),
+        "Busiest branches",
+        queries.builds_by("branch"),
         {"h": 8, "w": 8, "x": 8, "y": 36},
     )
 
 
 def table_origins() -> dict:
-    return _table(
-        "Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 36}
-    )
+    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 36})
 
 
 def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:

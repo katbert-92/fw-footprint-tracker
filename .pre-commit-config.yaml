@@ -1,8 +1,8 @@
 # Once per clone:  pre-commit install
 #
-# Linters only, no formatter. Argument lists and trailing comments in this
-# codebase are aligned by hand, and `ruff format` would reflow all of it for no
-# benefit.
+# ruff is both the linter and the formatter here, so there is no second tool to
+# keep in step: the line length lives in pyproject.toml and applies to each.
+# Lint first, then format -- a fix that changes a line still gets laid out.
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -10,6 +10,8 @@ repos:
     hooks:
       - id: ruff-check
         args: ["--fix"]
+
+      - id: ruff-format
 
   # Scans what is about to be committed. .env is gitignored and never staged,
   # so the secrets that matter here are the ones pasted into a file by mistake.

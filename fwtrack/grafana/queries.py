@@ -24,6 +24,7 @@ NO_VALUE = "(none)"
 def _dimension(tag: str) -> str:
     return f"COALESCE(tags->>'{tag}', '{NO_VALUE}')"
 
+
 # Seconds are not decoration: local rebuilds of a dirty tree share a commit and
 # land within the same minute, and without them every bar collapses into one
 # category.

@@ -86,8 +86,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def query_variable(name: str, label: str, sql: str, multi: bool = False,
-                   default: str = "") -> dict:
+def query_variable(name: str, label: str, sql: str, multi: bool = False, default: str = "") -> dict:
     return {
         "name": name,
         "label": label,
@@ -126,9 +125,14 @@ def _current(multi: bool, default: str) -> dict:
     return {"text": ["All"], "value": ["$__all"]}
 
 
-def build_variables(project: str, variant_tags: list, datasource_uid: str,
-                    per_region: bool = True, main_branch: str = "",
-                    common_filters: bool = True) -> list:
+def build_variables(
+    project: str,
+    variant_tags: list,
+    datasource_uid: str,
+    per_region: bool = True,
+    main_branch: str = "",
+    common_filters: bool = True,
+) -> list:
     variables = [
         {
             "name": "datasource",
@@ -158,8 +162,9 @@ def build_variables(project: str, variant_tags: list, datasource_uid: str,
         return variables
 
     variables += [
-        query_variable("branch", "Branch", queries.simple_values("branch"), multi=True,
-                       default=main_branch),
+        query_variable(
+            "branch", "Branch", queries.simple_values("branch"), multi=True, default=main_branch
+        ),
         query_variable("origin", "Build origin", queries.simple_values("origin"), multi=True),
         # Multiple choice, like the branch: being made to pick one person to see
         # the chart at all would hide everyone else's work.
@@ -196,8 +201,9 @@ def annotation_toolchain(variant_tags: list) -> dict:
     }
 
 
-def build_dashboard(project: str, variant_tags: list, limits: dict,
-                    datasource_uid: str, main_branch: str = "") -> dict:
+def build_dashboard(
+    project: str, variant_tags: list, limits: dict, datasource_uid: str, main_branch: str = ""
+) -> dict:
     return {
         "uid": f"fwtrack-{project}",
         "title": "Firmware memory",
@@ -217,8 +223,7 @@ def build_dashboard(project: str, variant_tags: list, limits: dict,
         # broken dashboard.
         "time": {"from": "now-3d", "to": "now"},
         "templating": {
-            "list": build_variables(project, variant_tags, datasource_uid,
-                                    main_branch=main_branch)
+            "list": build_variables(project, variant_tags, datasource_uid, main_branch=main_branch)
         },
         "annotations": {"list": [annotation_toolchain(variant_tags)]},
         "panels": [
@@ -231,8 +236,9 @@ def build_dashboard(project: str, variant_tags: list, limits: dict,
     }
 
 
-def build_activity_dashboard(project: str, variant_tags: list, datasource_uid: str,
-                             areas: list, pins: dict | None = None) -> dict:
+def build_activity_dashboard(
+    project: str, variant_tags: list, datasource_uid: str, areas: list, pins: dict | None = None
+) -> dict:
     """A second dashboard: the flow of builds rather than what they weigh.
 
     Carries only the filters a project has not pinned. The panels that count
@@ -261,8 +267,13 @@ def build_activity_dashboard(project: str, variant_tags: list, datasource_uid: s
         # Only what is left after pinning: a dashboard meant to be glanced at
         # should not open with six dropdowns to set first.
         "templating": {
-            "list": build_variables(project, [t for t in variant_tags if t not in pins],
-                                    datasource_uid, per_region=False, common_filters=False)
+            "list": build_variables(
+                project,
+                [t for t in variant_tags if t not in pins],
+                datasource_uid,
+                per_region=False,
+                common_filters=False,
+            )
         },
         "panels": [
             panels.stat_activity_totals(),
@@ -329,7 +340,8 @@ def generate(conn, project: str, args) -> None:
     chosen = [t.strip() for t in (args.variant_tags or "").split(",") if t.strip()]
     pinned = [p.strip() for p in (args.overview_pin or "").split(",") if p.strip()]
     db.save_project_settings(
-        conn, project,
+        conn,
+        project,
         variant_tags=chosen,
         main_branch=(args.main_branch or "").strip(),
         overview_pins=pinned,
@@ -371,8 +383,7 @@ def generate(conn, project: str, args) -> None:
     logger.info(f"{project}: dimensions {', '.join(variant_tags)}; areas {', '.join(areas)}")
 
     dashboard = build_dashboard(project, variant_tags, limits, args.datasource_uid, main_branch)
-    activity = build_activity_dashboard(project, variant_tags, args.datasource_uid,
-                                        areas, pins)
+    activity = build_activity_dashboard(project, variant_tags, args.datasource_uid, areas, pins)
 
     # One directory per project: the dashboard provider turns directories into
     # Grafana folders, and folders are where permissions are granted.

@@ -124,8 +124,13 @@ def record(build: dict, regions: list, url=None, token=None, dsn=None) -> int | 
         return write_build(conn, build, regions)
 
 
-def api(method: str, path: str, payload: dict | None = None, url: str | None = None,
-        token: str | None = None) -> dict:
+def api(
+    method: str,
+    path: str,
+    payload: dict | None = None,
+    url: str | None = None,
+    token: str | None = None,
+) -> dict:
     """One call to the ingest endpoint."""
     url = (url or os.getenv(URL_ENV) or "").strip()
     if not url:
@@ -160,8 +165,9 @@ def api(method: str, path: str, payload: dict | None = None, url: str | None = N
 
 
 def post(url: str, build: dict, regions: list, token: str | None = None) -> int | None:
-    result = api("POST", "/ingest/builds", {"build": build, "regions": regions},
-                 url=url, token=token)
+    result = api(
+        "POST", "/ingest/builds", {"build": build, "regions": regions}, url=url, token=token
+    )
     logger.info(f"Recorded build {result.get('build_id')} via {url}")
     return result.get("build_id")
 
@@ -307,9 +313,7 @@ def tag_counts(conn: psycopg.Connection, project: str) -> list:
     """Every dimension of a project, with how many builds carry it."""
     with conn.cursor() as cur:
         cur.execute(TAG_COUNTS, (project,))
-        return [
-            {"tag": tag, "builds": builds, "values": values} for tag, builds, values in cur
-        ]
+        return [{"tag": tag, "builds": builds, "values": values} for tag, builds, values in cur]
 
 
 def tag_values(conn: psycopg.Connection, project: str, tag: str) -> list:
@@ -395,8 +399,9 @@ def drop_tag(conn: psycopg.Connection, project: str, tag: str, dry_run: bool = F
     return affected
 
 
-def rename_tag(conn: psycopg.Connection, project: str, old: str, new: str,
-               dry_run: bool = False) -> int:
+def rename_tag(
+    conn: psycopg.Connection, project: str, old: str, new: str, dry_run: bool = False
+) -> int:
     """Rename one dimension, keeping its values. Returns rows affected."""
     _refuse_field(old, "renamed")
 
@@ -416,8 +421,9 @@ def rename_tag(conn: psycopg.Connection, project: str, old: str, new: str,
     return affected
 
 
-def rename_value(conn: psycopg.Connection, project: str, tag: str, old: str, new: str,
-                 dry_run: bool = False) -> int:
+def rename_value(
+    conn: psycopg.Connection, project: str, tag: str, old: str, new: str, dry_run: bool = False
+) -> int:
     """Rewrite one value of a dimension. Returns rows affected.
 
     What history recorded before a project started naming things: a build
