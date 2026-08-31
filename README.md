@@ -247,9 +247,18 @@ the project rather than the detail of one region.
 | Memory areas | how full each area is as a whole, on the latest build |
 | Builds over time | how many land, bucketed to the range |
 | By hour / by weekday | when the work happens |
+| When builds happen | the two crossed: weekday against hour, coloured |
 | Who builds / branches / origins | where the builds come from |
-| How full, per area | the same, over the dashboard's time range |
+| How full, per area | every measurement, percent left axis, bytes right |
 | Tightest regions | what to worry about, worst first |
+
+Counting panels count commits as well as builds. One push fans out into a build
+per variant, so a project with twenty-eight variants shows twenty-eight builds
+for a single commit, and a builds column on its own reads as if somebody had
+spent the day compiling.
+
+Each title says what it covers -- `· all branches` or the pinned branch -- since
+the two kinds of panel sit side by side.
 
 The panels about the flow of work count the whole project. The ones about how
 much room is left cannot: a bootloader on one board and an application on

@@ -232,10 +232,12 @@ def build_dashboard(project: str, variant_tags: list, limits: dict,
 
 
 def build_activity_dashboard(project: str, variant_tags: list, datasource_uid: str,
-                             pins: dict | None = None) -> dict:
+                             areas: list, pins: dict | None = None) -> dict:
     """A second dashboard: the flow of builds rather than what they weigh.
 
-    Carries only the filters a project has not pinned. The panels about the flow
+    Carries only the filters a project has not pinned. The panels that count
+    builds cover every branch; the ones about memory follow the pins, and both
+    say so in their titles.
     """
     pins = pins or {}
     return {
@@ -268,10 +270,11 @@ def build_activity_dashboard(project: str, variant_tags: list, datasource_uid: s
             panels.timeseries_builds_over_time(),
             panels.barchart_by_hour(),
             panels.barchart_by_weekday(),
+            panels.table_punchcard(),
             panels.table_authors(),
             panels.table_branches(),
             panels.table_origins(),
-            panels.timeseries_fullness(variant_tags, pins),
+            panels.timeseries_fullness(variant_tags, pins, areas),
             panels.table_tightest_regions(variant_tags, pins),
         ],
     }
@@ -368,7 +371,8 @@ def generate(conn, project: str, args) -> None:
     logger.info(f"{project}: dimensions {', '.join(variant_tags)}; areas {', '.join(areas)}")
 
     dashboard = build_dashboard(project, variant_tags, limits, args.datasource_uid, main_branch)
-    activity = build_activity_dashboard(project, variant_tags, args.datasource_uid, pins)
+    activity = build_activity_dashboard(project, variant_tags, args.datasource_uid,
+                                        areas, pins)
 
     # One directory per project: the dashboard provider turns directories into
     # Grafana folders, and folders are where permissions are granted.

@@ -345,29 +345,67 @@ ORDER BY extract(isodow from built_at)"""
 
 
 def builds_by(column: str, limit: int = 15) -> str:
-    """Who or what most of the builds come from."""
+    """Who or what most of the builds come from.
+
+    Commits as well as builds: one push fans out into a build per variant, so
+    a builds column on its own reads as if someone had built dozens of times.
+    """
     return f"""SELECT COALESCE({column}, '(none)') AS name,
+       count(DISTINCT commit) AS commits,
        count(*) AS builds
 FROM builds
 {FLOW_FILTER}
 GROUP BY 1
-ORDER BY 2 DESC
+ORDER BY 3 DESC
 LIMIT {int(limit)}"""
 
 
-def fullness_over_time(variant_tags: list, pins: dict | None = None) -> str:
-    """How full the fullest region of each area was, day by day.
+def builds_by_weekday_and_hour() -> str:
+    """The two bar charts crossed: a row per weekday, a column per hour.
 
-    Percentages rather than bytes, and the maximum rather than the average: the
-    question is "are we running out", and an average over the regions of an area
-    hides the one that is.
+    A column per hour rather than an hour column and a count: a table panel
+    colours cells, so the grid is the heatmap and no plugin has to be installed.
     """
-    return f"""SELECT date_trunc('day', built_at) AS time,
+    hours = "\n".join(
+        f'       count(*) FILTER (WHERE extract(hour from built_at) = {h}) AS "{h:02d}",'
+        for h in range(24)
+    )
+    return f"""SELECT to_char(built_at, 'Dy') AS day,
+{hours}
+       count(*) AS total
+FROM builds
+{FLOW_FILTER}
+GROUP BY 1, extract(isodow from built_at)
+ORDER BY extract(isodow from built_at)"""
+
+
+def fullness_over_time(variant_tags: list, pins: dict | None = None) -> str:
+    """Every measurement of how full each area is, one point per build.
+
+    Nothing is folded away: the regions of an area are summed, which is what
+    "per area" means and what the bar gauge above the panel shows, and each
+    build keeps its own point. Bucketing by day and taking the worst region --
+    what this did before -- hid both a second build on the same day and any
+    area whose tight region never moves.
+    """
+    return f"""SELECT built_at AS time,
        area AS metric,
-       max(pcnt) AS value
+       round(100.0 * sum(used) / sum(total), 1) AS value
 FROM memory_points
 {_memory_filter(variant_tags, pins)}
-    AND pcnt IS NOT NULL
+    AND total > 0
+GROUP BY 1, 2
+ORDER BY 1"""
+
+
+def fullness_bytes_over_time(variant_tags: list, pins: dict | None = None) -> str:
+    """The same measurements in bytes, for the second axis of the same panel."""
+    return f"""SELECT built_at AS time,
+       area || ' · used' AS metric,
+       sum(used) AS value
+FROM memory_points
+{_memory_filter(variant_tags, pins)}
+    AND total > 0
 GROUP BY 1, 2
 ORDER BY 1"""
 

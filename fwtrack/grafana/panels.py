@@ -245,6 +245,19 @@ def barchart_delta(variant_tags: list) -> dict:
 # ── Activity dashboard ──────────────────────────────────────────────────────
 
 
+ALL_BRANCHES = " · all branches"
+
+
+def _scope(pins: dict) -> str:
+    """Title suffix naming the slice a panel is pinned to.
+
+    This dashboard mixes two scopes -- the counting panels see every branch,
+    the memory panels only the pinned one -- and without a suffix the reader
+    has to remember which panel is which.
+    """
+    return f" · {pins['branch']}" if pins.get("branch") else ALL_BRANCHES
+
+
 def _table(title: str, sql: str, grid: dict, overrides: list | None = None) -> dict:
     return {
         "type": "table",
@@ -299,7 +312,7 @@ def _bars_by_category(title: str, sql: str, grid: dict) -> dict:
 def stat_activity_totals() -> dict:
     return {
         "type": "stat",
-        "title": "Common",
+        "title": "Common" + ALL_BRANCHES,
         "datasource": DS,
         "gridPos": {"h": 7, "w": 24, "x": 0, "y": 0},
         "targets": _target(queries.activity_totals(), table=True),
@@ -322,7 +335,7 @@ def bargauge_area_totals(variant_tags: list, pins: dict) -> dict:
     """One bar per memory area: how full it is as a whole, on the latest build."""
     return {
         "type": "bargauge",
-        "title": "Memory areas, last build",
+        "title": "Memory areas, last build" + _scope(pins),
         "datasource": DS,
         "gridPos": {"h": 6, "w": 24, "x": 0, "y": 7},
         "targets": _target(queries.area_totals(variant_tags, pins)),
@@ -349,7 +362,7 @@ def bargauge_area_totals(variant_tags: list, pins: dict) -> dict:
 def timeseries_builds_over_time() -> dict:
     return {
         "type": "timeseries",
-        "title": "Builds over time",
+        "title": "Builds over time" + ALL_BRANCHES,
         "datasource": DS,
         "gridPos": {"h": 8, "w": 24, "x": 0, "y": 13},
         "targets": _target(queries.builds_over_time()),
@@ -380,43 +393,97 @@ def timeseries_builds_over_time() -> dict:
 
 def barchart_by_hour() -> dict:
     return _bars_by_category(
-        "By hour of day", queries.builds_by_hour(), {"h": 7, "w": 12, "x": 0, "y": 21}
+        "By hour of day" + ALL_BRANCHES,
+        queries.builds_by_hour(),
+        {"h": 7, "w": 12, "x": 0, "y": 21},
     )
 
 
 def barchart_by_weekday() -> dict:
     return _bars_by_category(
-        "By weekday", queries.builds_by_weekday(), {"h": 7, "w": 12, "x": 12, "y": 21}
+        "By weekday" + ALL_BRANCHES,
+        queries.builds_by_weekday(),
+        {"h": 7, "w": 12, "x": 12, "y": 21},
     )
+
+
+def table_punchcard() -> dict:
+    """Weekday against hour, coloured like a contribution graph."""
+    return {
+        "type": "table",
+        "title": "When builds happen" + ALL_BRANCHES,
+        "datasource": DS,
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 28},
+        "targets": _target(queries.builds_by_weekday_and_hour(), table=True),
+        "options": {"showHeader": True, "cellHeight": "sm"},
+        "fieldConfig": {
+            "defaults": {
+                "custom": {
+                    "align": "center",
+                    "cellOptions": {"type": "color-background", "mode": "gradient"},
+                    "width": 44,
+                },
+                "color": {"mode": "continuous-BlPu"},
+                "min": 0,
+            },
+            "overrides": [
+                {
+                    "matcher": {"id": "byName", "options": "day"},
+                    "properties": [
+                        {"id": "custom.cellOptions", "value": {"type": "auto"}},
+                        {"id": "custom.width", "value": 60},
+                        {"id": "custom.align", "value": "left"},
+                    ],
+                },
+                {
+                    "matcher": {"id": "byName", "options": "total"},
+                    "properties": [
+                        {"id": "custom.cellOptions", "value": {"type": "auto"}},
+                        {"id": "custom.width", "value": 70},
+                    ],
+                },
+            ],
+        },
+    }
 
 
 def table_authors() -> dict:
     return _table(
-        "Who builds", queries.builds_by("author"), {"h": 8, "w": 8, "x": 0, "y": 28}
+        "Who builds" + ALL_BRANCHES,
+        queries.builds_by("author"),
+        {"h": 8, "w": 8, "x": 0, "y": 36},
     )
 
 
 def table_branches() -> dict:
+    # No scope suffix on this one or the next: a panel that lists branches, or
+    # where builds came from, says what it covers by listing it.
     return _table(
         "Busiest branches", queries.builds_by("branch"),
-        {"h": 8, "w": 8, "x": 8, "y": 28},
+        {"h": 8, "w": 8, "x": 8, "y": 36},
     )
 
 
 def table_origins() -> dict:
     return _table(
-        "Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 28}
+        "Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 36}
     )
 
 
-def timeseries_fullness(variant_tags: list, pins: dict) -> dict:
-    """The long view: how close each memory area has been running to its limit."""
+def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
+    """Every measurement, per area: percent on the left axis, bytes on the right.
+
+    Two axes rather than two panels: "45%" and "how many KiB is that" are the
+    same question asked twice, and the point is to read both off one line.
+    """
+    percent = "^(" + "|".join(re.escape(area) for area in sorted(areas)) + ")$"
     return {
         "type": "timeseries",
-        "title": "How full, per memory area",
+        "title": "How full, per memory area" + _scope(pins),
         "datasource": DS,
-        "gridPos": {"h": 10, "w": 16, "x": 0, "y": 36},
-        "targets": _target(queries.fullness_over_time(variant_tags, pins)),
+        "gridPos": {"h": 10, "w": 16, "x": 0, "y": 44},
+        "targets": _target(queries.fullness_over_time(variant_tags, pins))
+        + _target(queries.fullness_bytes_over_time(variant_tags, pins), ref="B"),
         "options": {
             "legend": {
                 "displayMode": "table",
@@ -428,22 +495,42 @@ def timeseries_fullness(variant_tags: list, pins: dict) -> dict:
         },
         "fieldConfig": {
             "defaults": {
-                "unit": "percent",
-                "min": 0,
-                "max": 100,
+                # The defaults describe the bytes series and the override the
+                # percentages, not the other way round: only the percentages
+                # have a fixed scale, and a default of 0-100 would flatten
+                # every byte count against the top of the panel.
+                "unit": "bytes",
                 "decimals": 1,
                 "custom": {
                     "drawStyle": "line",
-                    "lineWidth": 2,
-                    "fillOpacity": 10,
-                    "showPoints": "auto",
+                    "lineWidth": 3,
+                    "fillOpacity": 0,
+                    "lineInterpolation": "smooth",
+                    "lineStyle": {"fill": "dot", "dash": [0, 10]},
+                    "showPoints": "always",
+                    "showValues": True,
                     "pointSize": 5,
                     "spanNulls": True,
+                    "axisPlacement": "right",
+                    "thresholdsStyle": {"mode": "dashed"},
                 },
                 "color": {"mode": "palette-classic"},
-                "thresholds": _threshold_steps([75, 85, 95]),
+                # A base step only. The levels belong to the percentages; left
+                # here they would draw a dashed warning line at 80 bytes.
+                "thresholds": _threshold_steps([]),
             },
-            "overrides": [],
+            "overrides": [
+                {
+                    "matcher": {"id": "byRegexp", "options": percent},
+                    "properties": [
+                        {"id": "unit", "value": "percent"},
+                        {"id": "min", "value": 0},
+                        {"id": "max", "value": 100},
+                        {"id": "custom.axisPlacement", "value": "left"},
+                        {"id": "thresholds", "value": _threshold_steps([75, 85, 95])},
+                    ],
+                }
+            ],
         },
     }
 
@@ -451,9 +538,9 @@ def timeseries_fullness(variant_tags: list, pins: dict) -> dict:
 def table_tightest_regions(variant_tags: list, pins: dict) -> dict:
     """Which regions to worry about."""
     return _table(
-        "Tightest regions",
+        "Tightest regions" + _scope(pins),
         queries.tightest_regions(variant_tags, pins),
-        {"h": 10, "w": 8, "x": 16, "y": 36},
+        {"h": 10, "w": 8, "x": 16, "y": 44},
         overrides=[
             {
                 "matcher": {"id": "byName", "options": "Peak %"},
