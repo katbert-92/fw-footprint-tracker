@@ -314,7 +314,7 @@ def stat_activity_totals() -> dict:
         "type": "stat",
         "title": "Common" + ALL_BRANCHES,
         "datasource": DS,
-        "gridPos": {"h": 7, "w": 24, "x": 0, "y": 0},
+        "gridPos": {"h": 7, "w": 14, "x": 0, "y": 0},
         "targets": _target(queries.activity_totals(), table=True),
         "options": {
             "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/.*/", "values": False},
@@ -331,19 +331,30 @@ def stat_activity_totals() -> dict:
     }
 
 
-def bargauge_area_totals(variant_tags: list, pins: dict) -> dict:
-    """One bar per memory area: how full it is as a whole, on the latest build."""
+def gauge_area_totals(variant_tags: list, pins: dict) -> dict:
+    """One dial per memory area: how full it is as a whole, on the latest build."""
     return {
-        "type": "bargauge",
+        "type": "gauge",
         "title": "Memory areas, last build" + _scope(pins),
         "datasource": DS,
-        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 7},
+        "gridPos": {"h": 7, "w": 10, "x": 14, "y": 0},
         "targets": _target(queries.area_totals(variant_tags, pins)),
         "options": {
-            "displayMode": "gradient",
-            "orientation": "horizontal",
-            "showUnfilled": True,
-            "valueMode": "color",
+            "orientation": "vertical",
+            "shape": "gauge",
+            "barShape": "rounded",
+            "barWidthFactor": 0.3,
+            "segmentCount": 1,
+            "segmentSpacing": 0.3,
+            "endpointMarker": "glow",
+            "effects": {"barGlow": True, "centerGlow": True, "gradient": True},
+            "minVizHeight": 75,
+            "minVizWidth": 75,
+            "sizing": "auto",
+            "sparkline": False,
+            "textMode": "value_and_name",
+            "showThresholdLabels": False,
+            "showThresholdMarkers": False,
             "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
         },
         "fieldConfig": {
@@ -364,7 +375,7 @@ def timeseries_builds_over_time() -> dict:
         "type": "timeseries",
         "title": "Builds over time" + ALL_BRANCHES,
         "datasource": DS,
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 13},
+        "gridPos": {"h": 9, "w": 14, "x": 0, "y": 7},
         "targets": _target(queries.builds_over_time()),
         "options": {
             "legend": {"showLegend": True},
@@ -395,7 +406,7 @@ def barchart_by_hour() -> dict:
     return _bars_by_category(
         "By hour of day" + ALL_BRANCHES,
         queries.builds_by_hour(),
-        {"h": 7, "w": 12, "x": 0, "y": 21},
+        {"h": 7, "w": 14, "x": 0, "y": 23},
     )
 
 
@@ -403,7 +414,7 @@ def barchart_by_weekday() -> dict:
     return _bars_by_category(
         "By weekday" + ALL_BRANCHES,
         queries.builds_by_weekday(),
-        {"h": 7, "w": 12, "x": 12, "y": 21},
+        {"h": 7, "w": 14, "x": 0, "y": 16},
     )
 
 
@@ -413,7 +424,7 @@ def table_punchcard() -> dict:
         "type": "table",
         "title": "When builds happen" + ALL_BRANCHES,
         "datasource": DS,
-        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 28},
+        "gridPos": {"h": 8, "w": 14, "x": 0, "y": 30},
         "targets": _target(queries.builds_by_weekday_and_hour(), table=True),
         "options": {"showHeader": True, "cellHeight": "sm"},
         "fieldConfig": {
@@ -423,7 +434,7 @@ def table_punchcard() -> dict:
                     "cellOptions": {"type": "color-background", "mode": "gradient"},
                     "width": 44,
                 },
-                "color": {"mode": "continuous-BlPu"},
+                "color": {"mode": "continuous-viridis"},
                 "min": 0,
             },
             "overrides": [
@@ -451,7 +462,7 @@ def table_authors() -> dict:
     return _table(
         "Who builds" + ALL_BRANCHES,
         queries.builds_by("author"),
-        {"h": 8, "w": 8, "x": 0, "y": 36},
+        {"h": 8, "w": 8, "x": 0, "y": 38},
     )
 
 
@@ -461,12 +472,12 @@ def table_branches() -> dict:
     return _table(
         "Busiest branches",
         queries.builds_by("branch"),
-        {"h": 8, "w": 8, "x": 8, "y": 36},
+        {"h": 8, "w": 8, "x": 8, "y": 38},
     )
 
 
 def table_origins() -> dict:
-    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 36})
+    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 38})
 
 
 def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
@@ -480,13 +491,13 @@ def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
         "type": "timeseries",
         "title": "How full, per memory area" + _scope(pins),
         "datasource": DS,
-        "gridPos": {"h": 10, "w": 16, "x": 0, "y": 44},
+        "gridPos": {"h": 22, "w": 10, "x": 14, "y": 16},
         "targets": _target(queries.fullness_over_time(variant_tags, pins))
         + _target(queries.fullness_bytes_over_time(variant_tags, pins), ref="B"),
         "options": {
             "legend": {
                 "displayMode": "table",
-                "placement": "right",
+                "placement": "bottom",
                 "showLegend": True,
                 "calcs": ["lastNotNull", "max"],
             },
@@ -507,7 +518,7 @@ def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
                     "lineInterpolation": "smooth",
                     "lineStyle": {"fill": "dot", "dash": [0, 10]},
                     "showPoints": "always",
-                    "showValues": True,
+                    "showValues": False,
                     "pointSize": 5,
                     "spanNulls": True,
                     "axisPlacement": "right",
@@ -539,7 +550,7 @@ def table_tightest_regions(variant_tags: list, pins: dict) -> dict:
     return _table(
         "Tightest regions" + _scope(pins),
         queries.tightest_regions(variant_tags, pins),
-        {"h": 10, "w": 8, "x": 16, "y": 44},
+        {"h": 9, "w": 10, "x": 14, "y": 7},
         overrides=[
             {
                 "matcher": {"id": "byName", "options": "Peak %"},

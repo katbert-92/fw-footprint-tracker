@@ -263,7 +263,7 @@ def build_activity_dashboard(
         "graphTooltip": 0,
         # Shorter than the memory dashboard's: this one is about what is
         # happening now, not about a trend.
-        "time": {"from": "now-3d", "to": "now"},
+        "time": {"from": "now-7d", "to": "now"},
         # Only what is left after pinning: a dashboard meant to be glanced at
         # should not open with six dropdowns to set first.
         "templating": {
@@ -277,16 +277,16 @@ def build_activity_dashboard(
         },
         "panels": [
             panels.stat_activity_totals(),
-            panels.bargauge_area_totals(variant_tags, pins),
+            panels.gauge_area_totals(variant_tags, pins),
             panels.timeseries_builds_over_time(),
-            panels.barchart_by_hour(),
+            panels.table_tightest_regions(variant_tags, pins),
             panels.barchart_by_weekday(),
+            panels.timeseries_fullness(variant_tags, pins, areas),
+            panels.barchart_by_hour(),
             panels.table_punchcard(),
             panels.table_authors(),
             panels.table_branches(),
             panels.table_origins(),
-            panels.timeseries_fullness(variant_tags, pins, areas),
-            panels.table_tightest_regions(variant_tags, pins),
         ],
     }
 
