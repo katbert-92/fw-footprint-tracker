@@ -7,7 +7,6 @@ that. ElfParser reads section headers and symbols out of the ELF itself.
 
 import io
 import re
-import sys
 from pathlib import Path
 
 from elftools.elf.elffile import ELFFile
@@ -29,12 +28,11 @@ class MapParser:
             with open(self.map_file_path) as f:
                 self.map_lines = f.readlines()
             logger.info(f"File {self.map_file_path} successfully loaded")
-        except FileNotFoundError:
-            logger.error(f"Map file not found: {self.map_file_path}")
-            sys.exit(1)
         except OSError as e:
-            logger.error(f"Error reading file {self.map_file_path}: {e}")
-            sys.exit(1)
+            # Raised, not exited: this runs inside someone else's build system,
+            # and SystemExit walks straight through an `except Exception` that
+            # was meant to keep a footprint failure from stopping a build.
+            raise OSError(f"Cannot read the map file {self.map_file_path}: {e}") from e
 
     def get_regions_info(self) -> dict:
         """Physical memory regions: name, origin and length as the linker sees them."""
@@ -87,12 +85,8 @@ class ElfParser:
                 self.elf_data = f.read()
             self.elf = ELFFile(io.BytesIO(self.elf_data))
             logger.info(f"File {self.elf_path} successfully loaded")
-        except FileNotFoundError:
-            logger.error(f"File {self.elf_path} not found")
-            sys.exit(1)
         except OSError as e:
-            logger.error(f"Error reading file {self.elf_path}: {e}")
-            sys.exit(1)
+            raise OSError(f"Cannot read the ELF file {self.elf_path}: {e}") from e
 
     def get_sections_info(self) -> dict:
         if not self.elf:

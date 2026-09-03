@@ -30,13 +30,17 @@ usage() {
     sed -n '/^# Everything done/,/^#   \.\/fwtrack\.sh logs/p' "$0" | sed 's/^# \{0,1\}//'
 }
 
-# -T when there is no terminal, so `ssh host './fwtrack.sh tags list ...'` works.
 in_container() {
     local binary=$1; shift
-    local tty=()
-    [ -t 0 ] || tty=(-T)
 
-    exec docker compose exec "${tty[@]}" ingest "$binary" "$@"
+    if [ -t 0 ]; then
+        exec docker compose exec ingest "$binary" "$@"
+    fi
+
+    # No terminal: -T so `ssh host './fwtrack.sh tags list ...'` works, and
+    # stdin closed because `docker compose exec` otherwise reads it -- which
+    # eats the rest of the script in `ssh host bash -s < script`.
+    exec docker compose exec -T ingest "$binary" "$@" </dev/null
 }
 
 command=${1:-help}
@@ -58,7 +62,7 @@ case "$command" in
         # Credentials come from the container's own environment rather than
         # from parsing .env here.
         docker compose exec -T postgres \
-            sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | gzip > "$file"
+            sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' </dev/null | gzip > "$file"
         echo "Written $file ($(du -h "$file" | cut -f1))"
         ;;
     tags)

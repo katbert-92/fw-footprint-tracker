@@ -124,8 +124,13 @@ def record(build: dict, regions: list, url=None, token=None, dsn=None) -> int | 
         return write_build(conn, build, regions)
 
 
-def api(method: str, path: str, payload: dict | None = None, url: str | None = None,
-        token: str | None = None) -> dict:
+def api(
+    method: str,
+    path: str,
+    payload: dict | None = None,
+    url: str | None = None,
+    token: str | None = None,
+) -> dict:
     """One call to the ingest endpoint."""
     url = (url or os.getenv(URL_ENV) or "").strip()
     if not url:
@@ -160,8 +165,9 @@ def api(method: str, path: str, payload: dict | None = None, url: str | None = N
 
 
 def post(url: str, build: dict, regions: list, token: str | None = None) -> int | None:
-    result = api("POST", "/ingest/builds", {"build": build, "regions": regions},
-                 url=url, token=token)
+    result = api(
+        "POST", "/ingest/builds", {"build": build, "regions": regions}, url=url, token=token
+    )
     logger.info(f"Recorded build {result.get('build_id')} via {url}")
     return result.get("build_id")
 
@@ -307,9 +313,7 @@ def tag_counts(conn: psycopg.Connection, project: str) -> list:
     """Every dimension of a project, with how many builds carry it."""
     with conn.cursor() as cur:
         cur.execute(TAG_COUNTS, (project,))
-        return [
-            {"tag": tag, "builds": builds, "values": values} for tag, builds, values in cur
-        ]
+        return [{"tag": tag, "builds": builds, "values": values} for tag, builds, values in cur]
 
 
 def tag_values(conn: psycopg.Connection, project: str, tag: str) -> list:
@@ -395,8 +399,9 @@ def drop_tag(conn: psycopg.Connection, project: str, tag: str, dry_run: bool = F
     return affected
 
 
-def rename_tag(conn: psycopg.Connection, project: str, old: str, new: str,
-               dry_run: bool = False) -> int:
+def rename_tag(
+    conn: psycopg.Connection, project: str, old: str, new: str, dry_run: bool = False
+) -> int:
     """Rename one dimension, keeping its values. Returns rows affected."""
     _refuse_field(old, "renamed")
 
@@ -416,8 +421,9 @@ def rename_tag(conn: psycopg.Connection, project: str, old: str, new: str,
     return affected
 
 
-def rename_value(conn: psycopg.Connection, project: str, tag: str, old: str, new: str,
-                 dry_run: bool = False) -> int:
+def rename_value(
+    conn: psycopg.Connection, project: str, tag: str, old: str, new: str, dry_run: bool = False
+) -> int:
     """Rewrite one value of a dimension. Returns rows affected.
 
     What history recorded before a project started naming things: a build
@@ -467,9 +473,9 @@ def delete_build(conn: psycopg.Connection, build_id: int, dry_run: bool = False)
     return {"id": build_id, "project": project, "commit": commit, "built_at": built_at}
 
 
-# Created on use rather than by a migration: deployments predating this table
-# would otherwise need a hand-applied ALTER before the next dashboard could be
-# generated, and schema.sql only ever runs on an empty database.
+# Created on use rather than by a migration: deployments predating these
+# settings would otherwise need a hand-applied ALTER before the next dashboard
+# could be generated, and schema.sql only ever runs on an empty database.
 SETTINGS_TABLE = """
 CREATE TABLE IF NOT EXISTS project_settings (
     project      TEXT        PRIMARY KEY,
@@ -477,29 +483,49 @@ CREATE TABLE IF NOT EXISTS project_settings (
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 )
 """
+SETTINGS_COLUMNS = """
+ALTER TABLE project_settings
+    ADD COLUMN IF NOT EXISTS main_branch TEXT,
+    ADD COLUMN IF NOT EXISTS overview_pins TEXT[]
+"""
+
+SETTINGS = ("variant_tags", "main_branch", "overview_pins")
 
 
-def variant_tag_order(conn: psycopg.Connection, project: str) -> list:
-    """The filter order stored for this project, or an empty list."""
+def project_settings(conn: psycopg.Connection, project: str) -> dict:
+    """What this project has chosen about how its dashboards are built."""
     with conn.cursor() as cur:
         cur.execute(SETTINGS_TABLE)
-        cur.execute("SELECT variant_tags FROM project_settings WHERE project = %s", (project,))
+        cur.execute(SETTINGS_COLUMNS)
+        cur.execute(
+            f"SELECT {', '.join(SETTINGS)} FROM project_settings WHERE project = %s", (project,)
+        )
         row = cur.fetchone()
 
     conn.commit()
-    return list(row[0]) if row and row[0] else []
+    if row is None:
+        return {}
+
+    return {name: value for name, value in zip(SETTINGS, row, strict=True) if value}
 
 
-def set_variant_tag_order(conn: psycopg.Connection, project: str, tags: list) -> None:
+def save_project_settings(conn: psycopg.Connection, project: str, **values) -> None:
+    """Store the settings given, leaving the rest of the row alone."""
+    values = {k: v for k, v in values.items() if k in SETTINGS and v}
+    if not values:
+        return
+
+    columns = ", ".join(values)
+    placeholders = ", ".join(f"%({k})s" for k in values)
+    updates = ", ".join(f"{k} = EXCLUDED.{k}" for k in values)
     with conn.cursor() as cur:
         cur.execute(SETTINGS_TABLE)
+        cur.execute(SETTINGS_COLUMNS)
         cur.execute(
-            """
-            INSERT INTO project_settings (project, variant_tags) VALUES (%s, %s)
-            ON CONFLICT (project) DO UPDATE
-                SET variant_tags = EXCLUDED.variant_tags, updated_at = now()
-            """,
-            (project, list(tags)),
+            f"INSERT INTO project_settings (project, {columns}) "
+            f"VALUES (%(project)s, {placeholders}) "
+            f"ON CONFLICT (project) DO UPDATE SET {updates}, updated_at = now()",
+            {"project": project, **values},
         )
 
     conn.commit()

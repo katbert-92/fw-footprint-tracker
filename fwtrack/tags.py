@@ -96,9 +96,11 @@ def print_tags(tags: list, fields: list, project: str) -> None:
     worth filtering by, hundreds mean something like a commit hash that should
     never have been a dimension.
     """
-    rows = [[r["tag"], kind, r["builds"], r["values"]]
-            for kind, group in (("tag", tags), ("field", fields))
-            for r in group]
+    rows = [
+        [r["tag"], kind, r["builds"], r["values"]]
+        for kind, group in (("tag", tags), ("field", fields))
+        for r in group
+    ]
     if not rows:
         print(f"Nothing recorded for '{project}'")
         return
@@ -111,11 +113,13 @@ def print_values(rows: list, project: str, tag: str) -> None:
         print(f"'{project}' records no dimension called '{tag}'")
         return
 
-    print(tabulate(
-        [[r["value"], r["builds"]] for r in rows],
-        headers=[tag, "Builds"],
-        tablefmt="simple",
-    ))
+    print(
+        tabulate(
+            [[r["value"], r["builds"]] for r in rows],
+            headers=[tag, "Builds"],
+            tablefmt="simple",
+        )
+    )
 
 
 def report(dry_run: bool, message: str) -> None:
@@ -128,14 +132,16 @@ def run(args) -> None:
             if args.tag:
                 print_values(db.tag_values(conn, args.project, args.tag), args.project, args.tag)
             else:
-                print_tags(db.tag_counts(conn, args.project),
-                           db.field_counts(conn, args.project), args.project)
+                print_tags(
+                    db.tag_counts(conn, args.project),
+                    db.field_counts(conn, args.project),
+                    args.project,
+                )
             return
 
         if args.command == "drop":
             affected = db.drop_tag(conn, args.project, args.tag, args.dry_run)
-            report(args.dry_run,
-                   f"'{args.tag}' removed from {affected} builds of '{args.project}'")
+            report(args.dry_run, f"'{args.tag}' removed from {affected} builds of '{args.project}'")
             return
 
         if args.command == "rename":
@@ -147,8 +153,10 @@ def run(args) -> None:
             affected = db.rename_value(
                 conn, args.project, args.tag, args.old, args.new, args.dry_run
             )
-            report(args.dry_run,
-                   f"'{args.tag}={args.old}' renamed to '{args.new}' in {affected} builds")
+            report(
+                args.dry_run,
+                f"'{args.tag}={args.old}' renamed to '{args.new}' in {affected} builds",
+            )
             return
 
         deleted = db.delete_build(conn, args.build_id, args.dry_run)
@@ -156,8 +164,9 @@ def run(args) -> None:
             logger.error(f"No build with id {args.build_id}")
             sys.exit(1)
 
-        report(args.dry_run,
-               f"build {deleted['id']} deleted: {deleted['project']} {deleted['commit']}")
+        report(
+            args.dry_run, f"build {deleted['id']} deleted: {deleted['project']} {deleted['commit']}"
+        )
 
 
 def main():

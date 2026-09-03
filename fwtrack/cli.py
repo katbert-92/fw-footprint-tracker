@@ -32,7 +32,9 @@ def parse_args():
         description="Analyse a firmware build and record its memory footprint"
     )
     parser.add_argument(
-        "-c", "--config", type=Path,
+        "-c",
+        "--config",
+        type=Path,
         help="Tracking config (default: fw_tracking.toml, build/fw_tracking.toml)",
     )
     parser.add_argument("-e", "--elf", type=Path, help="ELF file, overriding the config")
@@ -40,9 +42,7 @@ def parse_args():
     parser.add_argument("--meta", type=Path, help="Build metadata JSON, overriding the config")
     parser.add_argument("--project", help="Project name, overriding the config")
     parser.add_argument("--version", help="Firmware version, overriding the config")
-    parser.add_argument(
-        "--branch", help="Branch name, for a CI checkout git cannot name itself"
-    )
+    parser.add_argument("--branch", help="Branch name, for a CI checkout git cannot name itself")
     parser.add_argument("--author", help="Commit author, overriding what git reports")
     parser.add_argument(
         "--origin",
@@ -52,11 +52,18 @@ def parse_args():
         "-o", "--output", type=Path, help="Also write the analysis to this JSON file"
     )
     parser.add_argument(
-        "-C", "--repo", type=Path, default=Path("."),
+        "-C",
+        "--repo",
+        type=Path,
+        default=Path("."),
         help="Repository to read commit and dirty state from (default: current directory)",
     )
     parser.add_argument(
-        "-t", "--tag", action="append", default=[], metavar="KEY=VALUE",
+        "-t",
+        "--tag",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
         help="Custom tag, repeatable; overrides the config and FWTRACK_TAGS",
     )
     parser.add_argument(

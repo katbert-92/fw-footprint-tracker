@@ -166,6 +166,25 @@ track_build(config="build/fw_tracking.toml", tags=["cfg=2", "board=rev-c"])
 Nothing is read from the environment that you do not want: pass `url=`,
 `token=`, `dsn=`, `read_dotenv=False`.
 
+### Branches in CI
+
+The branch comes from git, and from the CI environment when git cannot name it
+— a runner checks out a commit, not a branch.
+
+A tag pipeline defeats both: HEAD is detached, and the runner exports the tag
+rather than a branch. Recording the tag would mint a branch per push, each with
+one build in it, and take that build out of the history it belongs to. So the
+tracker asks the remote which branches contain the commit. The clone has none
+to search — a runner fetches only the ref that started the pipeline — so it
+fetches the branch tips first, over the remote the runner already cloned from.
+Nothing to add to a CI configuration, which is the point: it works the same in
+a repository that has never heard of this tool.
+
+Where that fails — an unreachable remote, a clone too shallow to connect the
+commit to any tip — the branch is recorded as `HEAD` and said so in the log.
+One value to notice and fix, rather than a branch list that grows for ever.
+`--branch` names it outright and skips all of the above.
+
 ## Dimensions
 
 Anything worth filtering by is a tag. Tags become single-choice dashboard
@@ -209,12 +228,19 @@ private copy; port anything worth keeping back into the generator.
 
 | Panel | |
 | --- | --- |
-| Last build delta | what the newest build cost, per region |
-| Region usage | how full each region is, against its thresholds |
-| Builds | date, commit, branch, author, version, region, size |
-| Usage over time | stacked bytes per region, with a capacity line |
+| Region usage | how full each region is at its last build, against its thresholds |
+| Usage over time | bytes per region and branch, with a capacity line |
 | By build | bytes per region per build |
-| Delta vs previous | change against the previous build **on the same branch** |
+| Delta vs previous | change against the previous build **of the same branch and variant** |
+
+The gauges are the front page; the history sits in a collapsed row below them,
+because the first question is "is anything running out", and only the answer
+"yes" leads to the second.
+
+Deltas are computed over the whole history and filtered by the dashboard's time
+range afterwards, so a build still shows what it cost when the build before it
+falls outside the window — which is most of them, since a branch and variant
+usually build once a day.
 
 Every time panel is marked where the compiler changed — the answer to "all
 regions grew at once, did we change toolchain?" belongs on the chart the jump is
@@ -231,15 +257,53 @@ dead branches stays usable.
 
 ### Build activity
 
-`fwtrack-dash` writes a second dashboard alongside the first, about the flow of
-builds rather than what they weigh: how many land per day, at what hours and on
-which weekdays, and who and what they come from.
+`fwtrack-dash` writes a second dashboard alongside the first, about the state of
+the project rather than the detail of one region.
 
-No variant filters on it. "What is going on in this project" is a question about
-all of it, and answering it for one combination of dimensions would be answering
-something else. A per-build log is deliberately absent for the same reason in
-reverse: a project that builds a dozen variants per commit turns one into a
-dozen rows of the same hash.
+| Panel | |
+| --- | --- |
+| Common | builds, commits, branches and authors in the range |
+| Memory areas | how full each area is as a whole, on the latest build |
+| Builds over time | how many land, bucketed to the range |
+| Latest builds | one row per build: commit, author, and what it did to each area |
+| When builds happen | weekday against hour, coloured; its own 30-day window |
+| Who builds / branches / origins | where the builds come from |
+| How full, per area | every measurement, percent left axis, bytes right |
+| Tightest regions | what to worry about, worst first |
+
+Counting panels count commits as well as builds. One push fans out into a build
+per variant, so a project with twenty-eight variants shows twenty-eight builds
+for a single commit, and a builds column on its own reads as if somebody had
+spent the day compiling.
+
+Each title says what it covers -- `· all branches` or the pinned branch -- since
+the two kinds of panel sit side by side.
+
+`When builds happen` is the one panel on its own clock. A rhythm needs weeks
+before it is a rhythm, while the memory panels beside it want the last few days;
+whichever range the picker is on, one of the two would be wrong. It takes a
+fixed 30 days and Grafana marks the override in its header.
+
+A dirty tree gets a star on its hash in `Latest builds`: the commit is real, but
+checking it out would not give you the firmware that was measured.
+
+The panels about the flow of work count the whole project. The ones about how
+much room is left cannot: a bootloader on one board and an application on
+another have different memories, and summing them invents a chip that does not
+exist. So they are narrowed — but to a slice the project fixes once, rather than
+to dropdowns to be set again on every visit:
+
+```bash
+./fwtrack.sh dash --project blinky --overview-pin tag=prd,type=app,branch=dev
+```
+
+Remembered with the project. Whatever is left unpinned stays a filter, which is
+how a project keeps the one dimension it does want to flip between — usually the
+board. Dimensions and the `branch`, `origin`, `version` and `toolchain` columns
+can all be pinned.
+
+A per-build log is deliberately absent: a project that builds a dozen variants
+per commit turns one build into a dozen rows of the same hash.
 
 ### Filter order
 
@@ -260,6 +324,16 @@ Stored with the project, so later regenerations keep it. It decides order only:
 a dimension the project stopped recording drops out on its own, and one it
 started recording since appears at the end rather than going missing. To leave
 one out of the filters entirely, `--exclude-tags`.
+
+Every project also has one branch that matters more than the rest, and opening on
+all of them buries it:
+
+```bash
+./fwtrack.sh dash --project blinky --main-branch dev
+```
+
+Remembered the same way, and used as what the branch filter is set to when the
+memory dashboard is opened.
 
 ## Operations
 
