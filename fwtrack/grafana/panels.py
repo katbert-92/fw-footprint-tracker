@@ -258,7 +258,9 @@ def _scope(pins: dict) -> str:
     return f" · {pins['branch']}" if pins.get("branch") else ALL_BRANCHES
 
 
-def _table(title: str, sql: str, grid: dict, overrides: list | None = None) -> dict:
+def _table(
+    title: str, sql: str, grid: dict, overrides: list | None = None, custom: dict | None = None
+) -> dict:
     return {
         "type": "table",
         "title": title,
@@ -267,7 +269,7 @@ def _table(title: str, sql: str, grid: dict, overrides: list | None = None) -> d
         "targets": _target(sql, table=True),
         "options": {"showHeader": True},
         "fieldConfig": {
-            "defaults": {"custom": {"align": "auto", "filterable": True}},
+            "defaults": {"custom": {"align": "auto", "filterable": True, **(custom or {})}},
             "overrides": overrides or [],
         },
     }
@@ -425,15 +427,11 @@ def table_latest_builds(variant_tags: list, pins: dict, areas: list) -> dict:
         "Latest builds" + _scope(pins),
         queries.latest_builds(variant_tags, pins, areas),
         {"h": 14, "w": 14, "x": 0, "y": 16},
+        # No width on any column. Grafana sizes them to their contents, and the
+        # floor is what decides whether it may: the default 150 is more than ten
+        # columns can have in half a screen, so it gave up and overflowed.
+        custom={"minWidth": 80},
         overrides=[
-            {
-                "matcher": {"id": "byName", "options": "Time"},
-                "properties": [{"id": "custom.width", "value": 165}],
-            },
-            {
-                "matcher": {"id": "byName", "options": "Commit"},
-                "properties": [{"id": "custom.width", "value": 90}],
-            },
             {
                 "matcher": {"id": "byRegexp", "options": "^.+ %$"},
                 "properties": [
@@ -443,7 +441,6 @@ def table_latest_builds(variant_tags: list, pins: dict, areas: list) -> dict:
                     {"id": "max", "value": 100},
                     {"id": "thresholds", "value": _threshold_steps([75, 85, 95])},
                     {"id": "custom.cellOptions", "value": {"type": "color-text"}},
-                    {"id": "custom.width", "value": 80},
                 ],
             },
             {
@@ -453,7 +450,6 @@ def table_latest_builds(variant_tags: list, pins: dict, areas: list) -> dict:
                     {"id": "decimals", "value": 0},
                     {"id": "thresholds", "value": grew},
                     {"id": "custom.cellOptions", "value": {"type": "color-text"}},
-                    {"id": "custom.width", "value": 90},
                 ],
             },
         ],

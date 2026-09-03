@@ -377,6 +377,9 @@ def latest_builds(variant_tags: list, pins: dict | None = None, areas: list = ()
     as in _delta_cte and for the same reason: a build compared against one that
     fell outside the window would show a delta the size of the whole firmware.
     """
+    # Dropped when the panel is pinned to one branch: a column carrying the same
+    # value on every row spends width to say nothing. The title already says it.
+    branch = "" if (pins or {}).get("branch") else '       branch AS "Branch",\n'
     columns = ",\n".join(
         f"       round(100.0 * max(used) FILTER (WHERE area = {_literal(area)})\n"
         f"                   / NULLIF(max(total) FILTER (WHERE area = {_literal(area)}), 0), 1)"
@@ -409,8 +412,7 @@ SELECT built_at AS "Time",
        -- checking it out would give you.
        left(commit, 8) || CASE WHEN dirty THEN '*' ELSE '' END AS "Commit",
        COALESCE(author, '(none)') AS "Author",
-       branch AS "Branch",
-{columns}
+{branch}{columns}
 FROM deltas
 WHERE $__timeFilter(built_at)
 GROUP BY build_id, built_at, commit, branch, author, dirty
