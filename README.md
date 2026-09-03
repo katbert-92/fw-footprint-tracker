@@ -166,6 +166,25 @@ track_build(config="build/fw_tracking.toml", tags=["cfg=2", "board=rev-c"])
 Nothing is read from the environment that you do not want: pass `url=`,
 `token=`, `dsn=`, `read_dotenv=False`.
 
+### Branches in CI
+
+The branch comes from git, and from the CI environment when git cannot name it
+— a runner checks out a commit, not a branch.
+
+A tag pipeline defeats both: HEAD is detached, and the runner exports the tag
+rather than a branch. Recording the tag would mint a branch per push, each with
+one build in it, and take that build out of the history it belongs to. So the
+tracker asks the remote which branches contain the commit. The clone has none
+to search — a runner fetches only the ref that started the pipeline — so it
+fetches the branch tips first, over the remote the runner already cloned from.
+Nothing to add to a CI configuration, which is the point: it works the same in
+a repository that has never heard of this tool.
+
+Where that fails — an unreachable remote, a clone too shallow to connect the
+commit to any tip — the branch is recorded as `HEAD` and said so in the log.
+One value to notice and fix, rather than a branch list that grows for ever.
+`--branch` names it outright and skips all of the above.
+
 ## Dimensions
 
 Anything worth filtering by is a tag. Tags become single-choice dashboard

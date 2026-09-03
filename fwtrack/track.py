@@ -83,18 +83,21 @@ def read_json(path: Path) -> dict:
         sys.exit(1)
 
 
-def git_output(repo: Path, *args: str) -> str:
+def git_output(repo: Path, *args: str, timeout: int = 10) -> str:
     """Run git against an explicit repository.
 
     Never relies on the current directory: the tool is installed as a package
     and may well be invoked from somewhere other than the project being
     measured, in which case picking up the wrong repository's commit would go
     unnoticed.
+
+    The timeout is generous enough for anything local; the one command here
+    that talks to a remote asks for more.
     """
     cmd = ["git", "-C", str(repo), *args]
     try:
         return subprocess.run(
-            cmd, capture_output=True, text=True, check=True, timeout=10
+            cmd, capture_output=True, text=True, check=True, timeout=timeout
         ).stdout.strip()
     except (subprocess.SubprocessError, OSError) as e:
         logger.warning(f"git command {' '.join(cmd)} failed: {e}")
@@ -114,25 +117,25 @@ CI_BRANCH_VARS = [
 ]
 DETACHED = "HEAD"
 
+# The subset of CI_BRANCH_VARS that holds the tag on a tag pipeline. Skipped
+# when one is detected: a tag is minted per push, so recording one as a branch
+# adds a branch that exists once and never again -- and takes the build with
+# it, out of the history of the branch it was actually cut from.
+REF_NAME_VARS = frozenset({"CI_COMMIT_REF_NAME", "GITHUB_REF_NAME"})
+
 # Consulted in this order when a tagged build has to be attributed to a branch.
 # A long-lived branch is a better answer than whichever feature branch happens
 # to come first alphabetically.
 PREFERRED_BRANCHES = ("main", "master", "dev", "develop")
 
 
-def branch_containing(repo: Path) -> str:
-    """The branch a tagged build was cut from, as far as git can tell.
+# Brings the branch tips into a clone that has only the ref which started the
+# pipeline. Forced, because the tips move and a stale one would be worse than
+# none: it would name a branch this commit is no longer on.
+BRANCH_REFSPEC = "+refs/heads/*:refs/remotes/origin/*"
 
-    A tag pipeline has no branch of its own: GitLab leaves CI_COMMIT_BRANCH
-    empty and puts the tag in CI_COMMIT_REF_NAME. Recording that as the branch
-    adds one dead entry to the dashboard filter per tag -- and a project that
-    tags a few times a day drowns the list in a week. The branch containing the
-    commit is both stable and more useful: it keeps a tagged build on the same
-    line as the work leading up to it, instead of starting a series of one.
 
-    Needs history, so a shallow CI clone finds nothing and the caller falls
-    back to the tag name.
-    """
+def branches_containing_head(repo: Path) -> list:
     listed = git_output(repo, "branch", "--all", "--contains", "HEAD", "--format=%(refname:short)")
 
     names = []
@@ -145,6 +148,49 @@ def branch_containing(repo: Path) -> str:
             continue
 
         names.append(name)
+
+    return names
+
+
+def fetch_branch_tips(repo: Path) -> None:
+    """Ask the remote for the branches, since the clone was not given any.
+
+    A CI runner fetches only the ref that started the pipeline, so on a tag
+    pipeline there is nothing to search: the tag is there and the branches are
+    not. Depth does not help -- a full history of one ref is still one ref.
+
+    Done here rather than asked of every project's CI configuration. A line in
+    each .gitlab-ci.yml would work and would also have to be remembered by
+    every repository that ever installs this, which is how a tool acquires a
+    setup step nobody performs. The credentials are already in the remote the
+    runner just cloned from, so there is nothing to configure.
+    """
+    remotes = git_output(repo, "remote").split()
+    if not remotes:
+        return
+
+    remote = "origin" if "origin" in remotes else remotes[0]
+    logger.info(f"No branch contains HEAD; asking {remote} for the branch tips")
+    git_output(repo, "fetch", "--quiet", remote, BRANCH_REFSPEC, timeout=120)
+
+
+def branch_containing(repo: Path) -> str:
+    """The branch a tagged build was cut from, as far as git can tell.
+
+    A tag pipeline has no branch of its own: GitLab leaves CI_COMMIT_BRANCH
+    empty and puts the tag in CI_COMMIT_REF_NAME. Recording that as the branch
+    adds one dead entry to the dashboard filter per tag -- and a project that
+    tags a few times a day drowns the list in a week. The branch containing the
+    commit is both stable and more useful: it keeps a tagged build on the same
+    line as the work leading up to it, instead of starting a series of one.
+
+    Returns nothing on a clone too shallow to connect the commit to any tip,
+    and the caller then records that it could not tell.
+    """
+    names = branches_containing_head(repo)
+    if not names:
+        fetch_branch_tips(repo)
+        names = branches_containing_head(repo)
 
     for preferred in PREFERRED_BRANCHES:
         if preferred in names:
@@ -168,24 +214,35 @@ def resolve_branch(repo: Path, override: str | None = None) -> str:
     if branch and branch != DETACHED:
         return branch
 
-    # Before the environment: on a tag pipeline CI_COMMIT_REF_NAME holds the
-    # tag, and recording a tag as a branch is what fills the filter with
-    # entries that exist once and never again.
-    if os.getenv("CI_COMMIT_TAG") or os.getenv("GITHUB_REF_TYPE") == "tag":
+    tagged = bool(os.getenv("CI_COMMIT_TAG") or os.getenv("GITHUB_REF_TYPE") == "tag")
+    if tagged:
         contained = branch_containing(repo)
         if contained:
             logger.info(f"Tagged build: attributing it to the branch '{contained}'")
             return contained
 
     for name in CI_BRANCH_VARS:
+        if tagged and name in REF_NAME_VARS:
+            continue
+
         value = os.getenv(name)
         if value:
             logger.info(f"Detached HEAD: taking the branch from {name}")
             return value
 
+    # An unknown CI, or one that exports no branch of its own. The same
+    # question as above, and worth asking once: a tagged build already did.
+    contained = "" if tagged else branch_containing(repo)
+    if contained:
+        logger.info(f"Detached HEAD: git puts the commit on '{contained}'")
+        return contained
+
+    # One bad value rather than a new one per push. This is what is left when
+    # neither git nor the environment can name a branch, and it has to stay
+    # obvious enough to fix rather than quietly grow the branch list.
     logger.warning(
-        "Detached HEAD and no CI branch variable set; recording the branch as "
-        f"'{DETACHED}'. Pass --branch to name it explicitly"
+        f"{'Tagged build' if tagged else 'Detached HEAD'} that no branch could be found for; "
+        f"recording the branch as '{DETACHED}'. Pass --branch to name it explicitly"
     )
     return DETACHED
 
