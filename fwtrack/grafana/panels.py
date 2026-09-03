@@ -273,42 +273,6 @@ def _table(title: str, sql: str, grid: dict, overrides: list | None = None) -> d
     }
 
 
-def _bars_by_category(title: str, sql: str, grid: dict) -> dict:
-    """Bar chart over a text column: hours, weekdays, names.
-
-    A barchart rather than a time series: the x axis here is a category, and the
-    order is the one the query returns.
-    """
-    return {
-        "type": "barchart",
-        "title": title,
-        "datasource": DS,
-        "gridPos": grid,
-        "targets": _target(sql, table=True),
-        "options": {
-            "orientation": "auto",
-            "showValue": "always",
-            "xTickLabelRotation": 0,
-            "barRadius": 0.1,
-            "barWidth": 0.83,
-            "legend": {"showLegend": False},
-            "tooltip": {"mode": "single"},
-        },
-        "fieldConfig": {
-            "defaults": {
-                "color": {"mode": "continuous-viridis"},
-                "custom": {
-                    "fillOpacity": 80,
-                    "lineWidth": 0,
-                    "axisSoftMin": 0,
-                    "gradientMode": "scheme",
-                },
-            },
-            "overrides": [],
-        },
-    }
-
-
 def stat_activity_totals() -> dict:
     return {
         "type": "stat",
@@ -402,29 +366,20 @@ def timeseries_builds_over_time() -> dict:
     }
 
 
-def barchart_by_hour() -> dict:
-    return _bars_by_category(
-        "By hour of day" + ALL_BRANCHES,
-        queries.builds_by_hour(),
-        {"h": 7, "w": 14, "x": 0, "y": 23},
-    )
-
-
-def barchart_by_weekday() -> dict:
-    return _bars_by_category(
-        "By weekday" + ALL_BRANCHES,
-        queries.builds_by_weekday(),
-        {"h": 7, "w": 14, "x": 0, "y": 16},
-    )
-
-
 def table_punchcard() -> dict:
-    """Weekday against hour, coloured like a contribution graph."""
+    """Weekday against hour, coloured like a contribution graph.
+
+    The only panel with a window of its own. A rhythm needs weeks to show one,
+    while the memory panels beside it want the last few days; whichever range
+    the picker is on, one of the two is wrong. Grafana marks the override in
+    the panel header, so the panel says it is not on the dashboard's clock.
+    """
     return {
         "type": "table",
         "title": "When builds happen" + ALL_BRANCHES,
         "datasource": DS,
         "gridPos": {"h": 8, "w": 14, "x": 0, "y": 30},
+        "timeFrom": "30d",
         "targets": _target(queries.builds_by_weekday_and_hour(), table=True),
         "options": {"showHeader": True, "cellHeight": "sm"},
         "fieldConfig": {
@@ -435,6 +390,9 @@ def table_punchcard() -> dict:
                     "width": 44,
                 },
                 "color": {"mode": "continuous-viridis"},
+                # Pinned at the bottom so an hour nobody builds in is the palest
+                # cell rather than whatever the quietest hour happened to be.
+                # The top is left to the data: the busiest hour is the darkest.
                 "min": 0,
             },
             "overrides": [
@@ -446,16 +404,60 @@ def table_punchcard() -> dict:
                         {"id": "custom.align", "value": "left"},
                     ],
                 },
-                {
-                    "matcher": {"id": "byName", "options": "total"},
-                    "properties": [
-                        {"id": "custom.cellOptions", "value": {"type": "auto"}},
-                        {"id": "custom.width", "value": 70},
-                    ],
-                },
             ],
         },
     }
+
+
+def table_latest_builds(variant_tags: list, pins: dict, areas: list) -> dict:
+    """The per-commit view. Every other panel here is an aggregate.
+
+    Deltas coloured rather than gauged: at ten columns in fourteen grid units a
+    gauge cell is a smear, while a red number is legible at any width.
+    """
+    # Any growth at all is worth a tint; the ladder in _threshold_steps is
+    # about how full something is, which is a different question.
+    grew = {
+        "mode": "absolute",
+        "steps": [{"color": "green", "value": None}, {"color": "red", "value": 1}],
+    }
+    return _table(
+        "Latest builds" + _scope(pins),
+        queries.latest_builds(variant_tags, pins, areas),
+        {"h": 14, "w": 14, "x": 0, "y": 16},
+        overrides=[
+            {
+                "matcher": {"id": "byName", "options": "Time"},
+                "properties": [{"id": "custom.width", "value": 165}],
+            },
+            {
+                "matcher": {"id": "byName", "options": "Commit"},
+                "properties": [{"id": "custom.width", "value": 90}],
+            },
+            {
+                "matcher": {"id": "byRegexp", "options": "^.+ %$"},
+                "properties": [
+                    {"id": "unit", "value": "percent"},
+                    {"id": "decimals", "value": 1},
+                    {"id": "min", "value": 0},
+                    {"id": "max", "value": 100},
+                    {"id": "thresholds", "value": _threshold_steps([75, 85, 95])},
+                    {"id": "custom.cellOptions", "value": {"type": "color-text"}},
+                    {"id": "custom.width", "value": 80},
+                ],
+            },
+            {
+                "matcher": {"id": "byRegexp", "options": "^.+ Δ$"},
+                "properties": [
+                    {"id": "unit", "value": "bytes"},
+                    {"id": "decimals", "value": 0},
+                    {"id": "thresholds", "value": grew},
+                    {"id": "custom.cellOptions", "value": {"type": "color-text"}},
+                    {"id": "custom.width", "value": 90},
+                ],
+            },
+        ],
+    )
 
 
 def table_authors() -> dict:

@@ -272,7 +272,7 @@ def _literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def _memory_filter(variant_tags: list, pins: dict | None = None) -> str:
+def _memory_filter(variant_tags: list, pins: dict | None = None, time_filter: bool = True) -> str:
     """Filters for the panels about how much memory is left.
 
     A pinned dimension is written into the query instead of becoming a
@@ -295,7 +295,9 @@ def _memory_filter(variant_tags: list, pins: dict | None = None) -> str:
         for column in PINNABLE_COLUMNS
         if column in pins
     ]
-    lines.append("    AND $__timeFilter(built_at)")
+    if time_filter:
+        lines.append("    AND $__timeFilter(built_at)")
+
     return "\n".join(lines)
 
 
@@ -324,27 +326,6 @@ GROUP BY 1
 ORDER BY 1"""
 
 
-def builds_by_hour() -> str:
-    """Which hours of the day builds land in, local to the database."""
-    return f"""SELECT to_char(built_at, 'HH24') AS hour,
-       count(*) AS builds
-FROM builds
-{FLOW_FILTER}
-GROUP BY 1
-ORDER BY 1"""
-
-
-def builds_by_weekday() -> str:
-    # Grouped by the number as well so the days come out in week order rather
-    # than alphabetically; a bar chart keeps the row order it is given.
-    return f"""SELECT to_char(built_at, 'Dy') AS day,
-       count(*) AS builds
-FROM builds
-{FLOW_FILTER}
-GROUP BY 1, extract(isodow from built_at)
-ORDER BY extract(isodow from built_at)"""
-
-
 def builds_by(column: str, limit: int = 15) -> str:
     """Who or what most of the builds come from.
 
@@ -362,22 +343,79 @@ LIMIT {int(limit)}"""
 
 
 def builds_by_weekday_and_hour() -> str:
-    """The two bar charts crossed: a row per weekday, a column per hour.
+    """When the work happens: a row per weekday, a column per hour.
 
     A column per hour rather than an hour column and a count: a table panel
     colours cells, so the grid is the heatmap and no plugin has to be installed.
+
+    No row or column totals. A table scales its colours across every numeric
+    field it is given, and a total an order of magnitude above the cells would
+    flatten all of them into the pale end of the scale -- and the totals are
+    the margins of this grid anyway, which is why the two bar charts that used
+    to draw them are gone.
     """
-    hours = "\n".join(
-        f'       count(*) FILTER (WHERE extract(hour from built_at) = {h}) AS "{h:02d}",'
+    hours = ",\n".join(
+        f'       count(*) FILTER (WHERE extract(hour from built_at) = {h}) AS "{h:02d}"'
         for h in range(24)
     )
     return f"""SELECT to_char(built_at, 'Dy') AS day,
 {hours}
-       count(*) AS total
 FROM builds
 {FLOW_FILTER}
 GROUP BY 1, extract(isodow from built_at)
 ORDER BY extract(isodow from built_at)"""
+
+
+def latest_builds(variant_tags: list, pins: dict | None = None, areas: list = ()) -> str:
+    """One row per build: which commit it was, and what it did to each area.
+
+    A column pair per area rather than a row per area: three rows sharing a
+    commit hash read as three builds, and the question this table answers is
+    "which commit moved it", asked once per commit.
+
+    LAG runs over the whole history and the range is applied after it, exactly
+    as in _delta_cte and for the same reason: a build compared against one that
+    fell outside the window would show a delta the size of the whole firmware.
+    """
+    columns = ",\n".join(
+        f"       round(100.0 * max(used) FILTER (WHERE area = {_literal(area)})\n"
+        f"                   / NULLIF(max(total) FILTER (WHERE area = {_literal(area)}), 0), 1)"
+        f' AS "{area} %",\n'
+        f'       max(delta) FILTER (WHERE area = {_literal(area)}) AS "{area} Δ"'
+        for area in areas
+    )
+    return f"""WITH per_build AS (
+  SELECT build_id,
+         built_at,
+         commit,
+         branch,
+         author,
+         dirty,
+         area,
+         sum(used) AS used,
+         sum(total) AS total
+  FROM memory_points
+{_memory_filter(variant_tags, pins, time_filter=False)}
+    AND total > 0
+  GROUP BY 1, 2, 3, 4, 5, 6, 7
+),
+deltas AS (
+  SELECT *,
+         used - LAG(used) OVER (PARTITION BY area ORDER BY built_at, build_id) AS delta
+  FROM per_build
+)
+SELECT built_at AS "Time",
+       -- A star for a dirty tree: the hash is real but the build is not what
+       -- checking it out would give you.
+       left(commit, 8) || CASE WHEN dirty THEN '*' ELSE '' END AS "Commit",
+       COALESCE(author, '(none)') AS "Author",
+       branch AS "Branch",
+{columns}
+FROM deltas
+WHERE $__timeFilter(built_at)
+GROUP BY build_id, built_at, commit, branch, author, dirty
+ORDER BY built_at DESC
+LIMIT 50"""
 
 
 def fullness_over_time(variant_tags: list, pins: dict | None = None) -> str:

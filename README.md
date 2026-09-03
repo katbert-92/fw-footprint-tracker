@@ -246,8 +246,8 @@ the project rather than the detail of one region.
 | Common | builds, commits, branches and authors in the range |
 | Memory areas | how full each area is as a whole, on the latest build |
 | Builds over time | how many land, bucketed to the range |
-| By hour / by weekday | when the work happens |
-| When builds happen | the two crossed: weekday against hour, coloured |
+| Latest builds | one row per build: commit, author, and what it did to each area |
+| When builds happen | weekday against hour, coloured; its own 30-day window |
 | Who builds / branches / origins | where the builds come from |
 | How full, per area | every measurement, percent left axis, bytes right |
 | Tightest regions | what to worry about, worst first |
@@ -259,6 +259,14 @@ spent the day compiling.
 
 Each title says what it covers -- `· all branches` or the pinned branch -- since
 the two kinds of panel sit side by side.
+
+`When builds happen` is the one panel on its own clock. A rhythm needs weeks
+before it is a rhythm, while the memory panels beside it want the last few days;
+whichever range the picker is on, one of the two would be wrong. It takes a
+fixed 30 days and Grafana marks the override in its header.
+
+A dirty tree gets a star on its hash in `Latest builds`: the commit is real, but
+checking it out would not give you the firmware that was measured.
 
 The panels about the flow of work count the whole project. The ones about how
 much room is left cannot: a bootloader on one board and an application on
