@@ -504,9 +504,9 @@ def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
         "fieldConfig": {
             "defaults": {
                 # The defaults describe the bytes series and the override the
-                # percentages, not the other way round: only the percentages
-                # have a fixed scale, and a default of 0-100 would flatten
-                # every byte count against the top of the panel.
+                # percentages, not the other way round: bytes are the majority
+                # here, and a percent unit on the default would label every byte
+                # count as a percentage.
                 "unit": "bytes",
                 "decimals": 1,
                 "custom": {
@@ -532,8 +532,10 @@ def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
                     "matcher": {"id": "byRegexp", "options": percent},
                     "properties": [
                         {"id": "unit", "value": "percent"},
-                        {"id": "min", "value": 0},
-                        {"id": "max", "value": 100},
+                        # No min/max: a pinned 0-100 makes the left axis the one
+                        # axis that ignores the series you picked, so a single
+                        # percentage line sits flat while its bytes twin, which
+                        # has no fixed scale, shows the same movement in full.
                         {"id": "custom.axisPlacement", "value": "left"},
                         {"id": "thresholds", "value": _threshold_steps([75, 85, 95])},
                     ],
