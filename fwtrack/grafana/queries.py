@@ -428,10 +428,14 @@ def fullness_over_time(variant_tags: list, pins: dict | None = None) -> str:
     build keeps its own point. Bucketing by day and taking the worst region --
     what this did before -- hid both a second build on the same day and any
     area whose tight region never moves.
+
+    Unrounded on purpose: the panel plots this against the same measurement in
+    bytes, and rounding to 0.1% is ~400 bytes of flash -- a staircase next to a
+    line that is smooth, on an axis zoomed in far enough to show it.
     """
     return f"""SELECT built_at AS time,
        area AS metric,
-       round(100.0 * sum(used) / sum(total), 1) AS value
+       100.0 * sum(used) / sum(total) AS value
 FROM memory_points
 {_memory_filter(variant_tags, pins)}
     AND total > 0

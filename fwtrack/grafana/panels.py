@@ -508,7 +508,6 @@ def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
                 # here, and a percent unit on the default would label every byte
                 # count as a percentage.
                 "unit": "bytes",
-                "decimals": 1,
                 "custom": {
                     "drawStyle": "line",
                     "lineWidth": 3,
