@@ -508,6 +508,7 @@ def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
                 # here, and a percent unit on the default would label every byte
                 # count as a percentage.
                 "unit": "bytes",
+                "decimals": 1,
                 "custom": {
                     "drawStyle": "line",
                     "lineWidth": 3,
@@ -531,6 +532,11 @@ def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
                     "matcher": {"id": "byRegexp", "options": percent},
                     "properties": [
                         {"id": "unit", "value": "percent"},
+                        # Back to auto, against the one decimal the bytes axis
+                        # wants: without min/max this axis fits whatever band
+                        # the data occupies, and a fixed decimal there prints
+                        # the same tick label twice once the band is narrow.
+                        {"id": "decimals", "value": None},
                         # No min/max: a pinned 0-100 makes the left axis the one
                         # axis that ignores the series you picked, so a single
                         # percentage line sits flat while its bytes twin, which
