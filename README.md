@@ -302,6 +302,28 @@ how a project keeps the one dimension it does want to flip between — usually t
 board. Dimensions and the `branch`, `origin`, `version` and `toolchain` columns
 can all be pinned.
 
+Pinning a dimension also takes it out of the *other* dropdowns' options: a
+feature set that only the bootloader is built with is no longer offered on a
+dashboard pinned to the application, where choosing it could only ever show
+No data.
+
+Because it is remembered, a pin set once is invisible afterwards — it lives in
+the database rather than in this repository, and nothing on the dashboard says
+it is there. What a project is set to:
+
+```sql
+SELECT * FROM project_settings WHERE project = 'blinky';
+```
+
+Passing nothing keeps what is stored, which is what makes regeneration safe, so
+there is no flag that unpins. Clearing is a deliberate edit:
+
+```sql
+UPDATE project_settings SET overview_pins = NULL WHERE project = 'blinky';
+```
+
+Then regenerate.
+
 A per-build log is deliberately absent: a project that builds a dozen variants
 per commit turns one build into a dozen rows of the same hash.
 
@@ -402,6 +424,7 @@ builds          per build: project, time, commit, branch, author, version,
 memory_usage    per region of a build: used, total (null if unknown)
 region_budgets  warning levels, per project and region
 memory_points   a view joining them, with free and percentage computed
+project_settings  per project: dimension order, main branch, overview pins
 ```
 
 Dimensions live in JSONB, so adding one needs no migration. Writes upsert on
