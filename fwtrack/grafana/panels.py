@@ -462,7 +462,7 @@ def table_authors() -> dict:
     return _table(
         "Who builds" + ALL_BRANCHES,
         queries.builds_by("author"),
-        {"h": 8, "w": 8, "x": 0, "y": 38},
+        {"h": 8, "w": 8, "x": 0, "y": 48},
     )
 
 
@@ -472,7 +472,7 @@ def table_branches() -> dict:
     return _table(
         "Busiest branches",
         queries.builds_by("branch"),
-        {"h": 8, "w": 8, "x": 8, "y": 38},
+        {"h": 8, "w": 8, "x": 8, "y": 48},
         # Branch names here are 'feature/ED-1767/self-test-mvp-sensors', and two
         # counters need no room at all; without this they split the width evenly
         # and the only column with anything to say is the one that gets cut.
@@ -486,7 +486,7 @@ def table_branches() -> dict:
 
 
 def table_origins() -> dict:
-    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 38})
+    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 48})
 
 
 def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
@@ -557,6 +557,60 @@ def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
                     ],
                 }
             ],
+        },
+    }
+
+
+def barchart_build_deltas(variant_tags: list, pins: dict, areas: list) -> dict:
+    """What each build cost, commit by commit.
+
+    The same numbers as the Δ columns of the build list, as a shape. A table
+    answers "how much did this commit cost"; the chart answers "which commit
+    was it", which is the question actually being asked when a chart is opened
+    at all.
+
+    Zero centred, so a saving reads as a bar below the line rather than as an
+    absence, and the run of unchanged builds either side of a jump stays
+    visible as a flat stretch.
+    """
+    return {
+        "type": "barchart",
+        "title": "What each build cost" + _scope(pins),
+        "datasource": DS,
+        "gridPos": {"h": 10, "w": 24, "x": 0, "y": 38},
+        "targets": _target(queries.delta_per_build(variant_tags, pins, areas), table=True),
+        "options": {
+            "orientation": "vertical",
+            "xField": "Build",
+            # Every hash labelled: the point of a commit axis is that a bar can
+            # be traced back to what caused it, and a spacing that drops labels
+            # takes exactly that away.
+            "xTickLabelRotation": -45,
+            "xTickLabelSpacing": 0,
+            "showValue": "auto",
+            "stacking": "none",
+            "barRadius": 0,
+            "barWidth": 0.9,
+            "groupWidth": 0.7,
+            "fullHighlight": False,
+            "legend": {"displayMode": "list", "placement": "bottom", "showLegend": True},
+            "tooltip": {"mode": "multi", "sort": "none"},
+        },
+        "fieldConfig": {
+            "defaults": {
+                "unit": "bytes",
+                "decimals": 0,
+                "color": {"mode": "palette-classic"},
+                "custom": {
+                    "fillOpacity": 90,
+                    "lineWidth": 0,
+                    "gradientMode": "none",
+                    # Without it the axis fits the data, and a day of +8 B
+                    # builds is drawn with the same swing as a day of +5 KiB.
+                    "axisCenteredZero": True,
+                },
+            },
+            "overrides": [],
         },
     }
 

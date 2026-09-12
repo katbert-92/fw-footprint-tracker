@@ -285,6 +285,7 @@ def build_activity_dashboard(
             panels.table_latest_builds(variant_tags, pins, areas),
             panels.timeseries_fullness(variant_tags, pins, areas),
             panels.table_punchcard(),
+            panels.barchart_build_deltas(variant_tags, pins, areas),
             panels.table_authors(),
             panels.table_branches(),
             panels.table_origins(),

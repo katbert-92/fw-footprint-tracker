@@ -269,6 +269,7 @@ the project rather than the detail of one region.
 | When builds happen | weekday against hour, coloured; its own 30-day window |
 | Who builds / branches / origins | where the builds come from |
 | How full, per area | every measurement, percent left axis, bytes right |
+| What each build cost | bytes gained or lost per area, a bar per commit |
 | Tightest regions | what to worry about, worst first |
 
 Counting panels count commits as well as builds. One push fans out into a build
@@ -286,6 +287,13 @@ fixed 30 days and Grafana marks the override in its header.
 
 A dirty tree gets a star on its hash in `Latest builds`: the commit is real, but
 checking it out would not give you the firmware that was measured.
+
+`What each build cost` puts the commit on the x axis rather than the time. The
+same deltas are in the build list a column at a time; as a shape they answer the
+question a chart is opened for, which is *which* commit it was. Builds arrive in
+bursts of a dozen and then nothing until the next day, so a calendar axis would
+draw a cliff and a desert — here every build gets the same width, and the run of
+unchanged builds either side of a jump stays readable as a flat stretch.
 
 The panels about the flow of work count the whole project. The ones about how
 much room is left cannot: a bootloader on one board and an application on

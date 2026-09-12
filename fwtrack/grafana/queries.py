@@ -374,6 +374,40 @@ GROUP BY 1, extract(isodow from built_at)
 ORDER BY extract(isodow from built_at)"""
 
 
+def _build_deltas(variant_tags: list, pins: dict | None = None) -> str:
+    """One row per build and area: what it uses, and the change from the one
+    before it.
+
+    A whole area rather than a region: this dashboard is read to find out
+    whether a commit cost anything, and which of the four flash regions it
+    landed in is the next question, asked on the memory dashboard.
+
+    LAG runs over the whole history and the range is applied by the callers, as
+    in _delta_cte and for the same reason: a build compared against one that
+    fell outside the window would show a delta the size of the whole firmware.
+    """
+    return f"""WITH per_build AS (
+  SELECT build_id,
+         built_at,
+         commit,
+         branch,
+         author,
+         dirty,
+         area,
+         sum(used) AS used,
+         sum(total) AS total
+  FROM memory_points
+{_memory_filter(variant_tags, pins, time_filter=False)}
+    AND total > 0
+  GROUP BY 1, 2, 3, 4, 5, 6, 7
+),
+deltas AS (
+  SELECT *,
+         used - LAG(used) OVER (PARTITION BY area ORDER BY built_at, build_id) AS delta
+  FROM per_build
+)"""
+
+
 def _signed_bytes(expr: str) -> str:
     """A byte delta as signed text: '+488 B', '-1.5 KiB', '0 B'.
 
@@ -416,26 +450,7 @@ def latest_builds(variant_tags: list, pins: dict | None = None, areas: list = ()
         f'       max(delta_text) FILTER (WHERE area = {_literal(area)}) AS "{area} Δ"'
         for area in areas
     )
-    return f"""WITH per_build AS (
-  SELECT build_id,
-         built_at,
-         commit,
-         branch,
-         author,
-         dirty,
-         area,
-         sum(used) AS used,
-         sum(total) AS total
-  FROM memory_points
-{_memory_filter(variant_tags, pins, time_filter=False)}
-    AND total > 0
-  GROUP BY 1, 2, 3, 4, 5, 6, 7
-),
-deltas AS (
-  SELECT *,
-         used - LAG(used) OVER (PARTITION BY area ORDER BY built_at, build_id) AS delta
-  FROM per_build
-),
+    return f"""{_build_deltas(variant_tags, pins)},
 shown AS (
   SELECT *,
          {_signed_bytes("delta")} AS delta_text
@@ -452,6 +467,43 @@ WHERE $__timeFilter(built_at)
 GROUP BY build_id, built_at, commit, branch, author, dirty
 ORDER BY built_at DESC
 LIMIT 50"""
+
+
+def delta_per_build(
+    variant_tags: list, pins: dict | None = None, areas: list = (), limit: int = 40
+) -> str:
+    """What each build cost, as a bar group per commit.
+
+    The commit on the x axis rather than the time: builds arrive in bursts of a
+    dozen and then nothing until tomorrow, and on a calendar axis that is a
+    cliff followed by a desert. Here every build gets the same width, which is
+    what makes two neighbouring commits comparable at a glance.
+
+    Wide format, a column per area, because that is what the bar chart panel
+    groups by. Areas are known when the dashboard is generated, so unlike the
+    per-region charts this one can name its columns.
+    """
+    columns = ",\n".join(
+        f'         max(delta) FILTER (WHERE area = {_literal(area)}) AS "{area}"'
+        for area in areas
+    )
+    quoted = ", ".join(f'"{area}"' for area in areas)
+    return f"""{_build_deltas(variant_tags, pins)}
+SELECT "Build", {quoted}
+FROM (
+  SELECT left(commit, 8) || CASE WHEN dirty THEN '*' ELSE '' END AS "Build",
+         built_at,
+{columns}
+  FROM deltas
+  WHERE $__timeFilter(built_at)
+    AND delta IS NOT NULL
+  GROUP BY build_id, built_at, commit, dirty
+  ORDER BY built_at DESC
+  LIMIT {int(limit)}
+) newest
+-- Newest first inside, oldest first out here: the limit has to take the recent
+-- end of the history, and the chart has to read left to right.
+ORDER BY built_at"""
 
 
 def fullness_over_time(variant_tags: list, pins: dict | None = None) -> str:
