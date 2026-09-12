@@ -132,6 +132,7 @@ def build_variables(
     per_region: bool = True,
     main_branch: str = "",
     common_filters: bool = True,
+    pins: dict | None = None,
 ) -> list:
     variables = [
         {
@@ -154,7 +155,7 @@ def build_variables(
     # Each dimension narrows the next one, so a combination that never existed
     # cannot be assembled from the dropdowns.
     variables += [
-        query_variable(tag, tag, queries.variable_values(tag, variant_tags[:i]))
+        query_variable(tag, tag, queries.variable_values(tag, variant_tags[:i], pins))
         for i, tag in enumerate(variant_tags)
     ]
 
@@ -273,6 +274,7 @@ def build_activity_dashboard(
                 datasource_uid,
                 per_region=False,
                 common_filters=False,
+                pins=pins,
             )
         },
         "panels": [

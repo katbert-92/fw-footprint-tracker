@@ -195,16 +195,24 @@ WHERE delta IS NOT NULL
 ORDER BY 1"""
 
 
-def variable_values(tag: str, depends_on: list) -> str:
+def variable_values(tag: str, depends_on: list, pins: dict | None = None) -> str:
     """Values of one build dimension, narrowed by the dimensions before it.
 
     Without the narrowing every variable is independent, each picks its own
     first value, and their combination is easily one that never existed: cfg=1
     means -O1 while opt=0 sits next to it. The dashboard then shows No data with
     no hint as to why.
+
+    A pinned dimension narrows the same way even though it has no dropdown:
+    it is still part of the combination, and a value that exists only outside
+    the pin would otherwise be offered and show nothing.
     """
     conditions = ["project = '$project'", "$__timeFilter(built_at)"]
     conditions += [f"{_dimension(name)} = '${name}'" for name in depends_on]
+    conditions += [
+        f"{column if column in PINNABLE_COLUMNS else _dimension(column)} = {_literal(value)}"
+        for column, value in (pins or {}).items()
+    ]
 
     return (
         f"SELECT DISTINCT {_dimension(tag)} AS value\n"
@@ -366,6 +374,27 @@ GROUP BY 1, extract(isodow from built_at)
 ORDER BY extract(isodow from built_at)"""
 
 
+def _signed_bytes(expr: str) -> str:
+    """A byte delta as signed text: '+488 B', '-1.5 KiB', '0 B'.
+
+    Grafana's byte units never print a plus, and a growth of 488 B next to a
+    saving of 488 B then differ by one thin character. Formatting here costs
+    the column its numeric sort, which this table -- ordered by time, read a
+    row at a time -- does not use.
+    """
+    return f"""CASE
+         WHEN {expr} IS NULL THEN NULL
+         WHEN {expr} = 0 THEN '0 B'
+         ELSE (CASE WHEN {expr} > 0 THEN '+' ELSE '-' END) ||
+              CASE
+                WHEN abs({expr}) < 1024 THEN abs({expr})::text || ' B'
+                WHEN abs({expr}) < 1048576
+                  THEN trim(to_char(abs({expr}) / 1024.0, 'FM999990.0')) || ' KiB'
+                ELSE trim(to_char(abs({expr}) / 1048576.0, 'FM999990.0')) || ' MiB'
+              END
+       END"""
+
+
 def latest_builds(variant_tags: list, pins: dict | None = None, areas: list = ()) -> str:
     """One row per build: which commit it was, and what it did to each area.
 
@@ -384,7 +413,7 @@ def latest_builds(variant_tags: list, pins: dict | None = None, areas: list = ()
         f"       round(100.0 * max(used) FILTER (WHERE area = {_literal(area)})\n"
         f"                   / NULLIF(max(total) FILTER (WHERE area = {_literal(area)}), 0), 1)"
         f' AS "{area} %",\n'
-        f'       max(delta) FILTER (WHERE area = {_literal(area)}) AS "{area} Δ"'
+        f'       max(delta_text) FILTER (WHERE area = {_literal(area)}) AS "{area} Δ"'
         for area in areas
     )
     return f"""WITH per_build AS (
@@ -406,6 +435,11 @@ deltas AS (
   SELECT *,
          used - LAG(used) OVER (PARTITION BY area ORDER BY built_at, build_id) AS delta
   FROM per_build
+),
+shown AS (
+  SELECT *,
+         {_signed_bytes("delta")} AS delta_text
+  FROM deltas
 )
 SELECT built_at AS "Time",
        -- A star for a dirty tree: the hash is real but the build is not what
@@ -413,7 +447,7 @@ SELECT built_at AS "Time",
        left(commit, 8) || CASE WHEN dirty THEN '*' ELSE '' END AS "Commit",
        COALESCE(author, '(none)') AS "Author",
 {branch}{columns}
-FROM deltas
+FROM shown
 WHERE $__timeFilter(built_at)
 GROUP BY build_id, built_at, commit, branch, author, dirty
 ORDER BY built_at DESC

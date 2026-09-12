@@ -417,12 +417,13 @@ def table_latest_builds(variant_tags: list, pins: dict, areas: list) -> dict:
     Deltas coloured rather than gauged: at ten columns in fourteen grid units a
     gauge cell is a smear, while a red number is legible at any width.
     """
-    # Any growth at all is worth a tint; the ladder in _threshold_steps is
-    # about how full something is, which is a different question.
-    grew = {
-        "mode": "absolute",
-        "steps": [{"color": "green", "value": None}, {"color": "red", "value": 1}],
-    }
+    # The deltas arrive as signed text ('+488 B', '-1.5 KiB'), so the colour
+    # comes from matching the sign rather than from thresholds: growth red,
+    # a saving blue, an unchanged build left in the base colour.
+    signs = [
+        {"type": "regex", "options": {"pattern": r"^\+.*", "result": {"color": "red", "index": 0}}},
+        {"type": "regex", "options": {"pattern": "^-.*", "result": {"color": "blue", "index": 1}}},
+    ]
     return _table(
         "Latest builds" + _scope(pins),
         queries.latest_builds(variant_tags, pins, areas),
@@ -446,10 +447,11 @@ def table_latest_builds(variant_tags: list, pins: dict, areas: list) -> dict:
             {
                 "matcher": {"id": "byRegexp", "options": "^.+ Δ$"},
                 "properties": [
-                    {"id": "unit", "value": "bytes"},
-                    {"id": "decimals", "value": 0},
-                    {"id": "thresholds", "value": grew},
+                    {"id": "mappings", "value": signs},
                     {"id": "custom.cellOptions", "value": {"type": "color-text"}},
+                    # Text columns align left, and a column of numbers that does
+                    # not line up on its last digit cannot be scanned.
+                    {"id": "custom.align", "value": "right"},
                 ],
             },
         ],
@@ -471,6 +473,15 @@ def table_branches() -> dict:
         "Busiest branches",
         queries.builds_by("branch"),
         {"h": 8, "w": 8, "x": 8, "y": 38},
+        # Branch names here are 'feature/ED-1767/self-test-mvp-sensors', and two
+        # counters need no room at all; without this they split the width evenly
+        # and the only column with anything to say is the one that gets cut.
+        overrides=[
+            {
+                "matcher": {"id": "byName", "options": "name"},
+                "properties": [{"id": "custom.width", "value": 320}],
+            }
+        ],
     )
 
 
