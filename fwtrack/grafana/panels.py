@@ -396,14 +396,22 @@ def table_latest_builds(variant_tags: list, pins: dict, areas: list) -> dict:
         "Latest builds" + _scope(pins),
         queries.latest_builds(variant_tags, pins, areas),
         {"h": 14, "w": 14, "x": 0, "y": 16},
-        # No width on any column. Grafana sizes them to their contents, and the
-        # floor is what decides whether it may: the default 150 is more than ten
-        # columns can have in half a screen, so it gave up and overflowed.
+        # A floor rather than a width on most columns: the default 150 is more
+        # than ten columns can have in half a screen, so Grafana gave up and
+        # overflowed. The two kinds of column that do get a width are the ones
+        # whose content is a known size -- a timestamp, and a byte count of at
+        # most a few characters -- and pinning those is what leaves the rest to
+        # the commit and the author.
         custom={"minWidth": 80},
         overrides=[
             {
+                "matcher": {"id": "byName", "options": "Time"},
+                "properties": [{"id": "custom.width", "value": 170}],
+            },
+            {
                 "matcher": {"id": "byRegexp", "options": "^.+ %$"},
                 "properties": [
+                    {"id": "custom.width", "value": 78},
                     {"id": "unit", "value": "percent"},
                     {"id": "decimals", "value": 1},
                     {"id": "min", "value": 0},
@@ -415,6 +423,7 @@ def table_latest_builds(variant_tags: list, pins: dict, areas: list) -> dict:
             {
                 "matcher": {"id": "byRegexp", "options": "^.+ Δ$"},
                 "properties": [
+                    {"id": "custom.width", "value": 88},
                     {"id": "mappings", "value": signs},
                     {"id": "custom.cellOptions", "value": {"type": "color-text"}},
                     # Text columns align left, and a column of numbers that does
@@ -580,9 +589,14 @@ def barchart_build_deltas(variant_tags: list, pins: dict, areas: list) -> dict:
                     # is a log scale that stays linear across the origin, so
                     # the +8 B builds are visible next to a +5 KiB one instead
                     # of being flattened to the same nothing.
+                    #
+                    # Base 10 even though the values are bytes: base 2 draws a
+                    # gridline on every doubling, which over the range a delta
+                    # covers is fourteen labels a side and they overlap into an
+                    # unreadable stack. Ten gives four.
                     "scaleDistribution": {
                         "type": "symlog",
-                        "log": 2,
+                        "log": 10,
                         "linearThreshold": 1,
                     },
                 },

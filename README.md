@@ -296,11 +296,13 @@ bursts of a dozen and then nothing until the next day, so a calendar axis would
 draw a cliff and a desert — here every build gets the same width, and the run of
 unchanged builds either side of a jump stays readable as a flat stretch.
 
-Its y axis is symlog base 2 — a log scale that stays linear across the origin,
-because a delta is regularly zero and often negative and a plain log axis can
-draw neither. Most builds move a handful of bytes and one in a hundred moves
-five kilobytes; on a linear axis that one bar is the chart and the rest are a
-flat line.
+Its y axis is symlog — a log scale that stays linear across the origin, because
+a delta is regularly zero and often negative and a plain log axis can draw
+neither. Most builds move a handful of bytes and one in a hundred moves five
+kilobytes; on a linear axis that one bar is the chart and the rest are a flat
+line. Base 10 rather than the base 2 the unit suggests: a gridline on every
+doubling is fourteen labels a side, and they overlap into a stack that cannot be
+read.
 
 The panels about the flow of work count the whole project. The ones about how
 much room is left cannot: a bootloader on one board and an application on
