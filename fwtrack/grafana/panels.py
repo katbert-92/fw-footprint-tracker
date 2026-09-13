@@ -550,6 +550,15 @@ def barchart_build_deltas(variant_tags: list, pins: dict, areas: list) -> dict:
     absence, and the run of unchanged builds either side of a jump stays
     visible as a flat stretch.
     """
+    # Per area rather than on the defaults, which would take the commit axis
+    # with it: the placement of every field is the placement of the x field too.
+    no_axis = [
+        {
+            "matcher": {"id": "byName", "options": area},
+            "properties": [{"id": "custom.axisPlacement", "value": "hidden"}],
+        }
+        for area in areas
+    ]
     return {
         "type": "barchart",
         "title": "What each build cost" + _scope(pins),
@@ -606,16 +615,14 @@ def barchart_build_deltas(variant_tags: list, pins: dict, areas: list) -> dict:
                         "log": 2,
                         "linearThreshold": 1,
                     },
-                    # Without labels, though. Grafana hands log tick generation
-                    # to uPlot and exposes nothing to thin it out -- not even
-                    # the base, which it does not pass for symlog -- so at this
-                    # height they stack into an unreadable column. A log axis
-                    # is a poor ruler anyway: the byte counts are on the bars,
-                    # in the tooltip, and in the table below.
-                    "axisPlacement": "hidden",
                 },
             },
-            "overrides": [],
+            # Hidden, not absent. Grafana hands log tick generation to uPlot and
+            # exposes nothing to thin it out -- not even the base, which it does
+            # not pass for symlog -- so at this height the labels stack into an
+            # unreadable column. A log axis is a poor ruler anyway: the byte
+            # counts are on the bars, in the tooltip, and in the table below.
+            "overrides": no_axis,
         },
     }
 
