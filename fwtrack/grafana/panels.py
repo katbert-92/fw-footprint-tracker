@@ -560,9 +560,10 @@ def barchart_build_deltas(variant_tags: list, pins: dict, areas: list) -> dict:
             "orientation": "vertical",
             "xField": "Build",
             "xTickLabelRotation": -45,
-            # Not every hash: at half a screen they overlap into a grey smear,
-            # and the ones that survive are enough to place a bar in time.
-            "xTickLabelSpacing": 100,
+            # Auto, so every hash that fits is drawn. The point of a commit axis
+            # is that a bar can be traced back to what caused it, and a fixed
+            # spacing drops labels that had room for themselves.
+            "xTickLabelSpacing": 0,
             "showValue": "auto",
             "stacking": "none",
             "barRadius": 0.1,
@@ -577,10 +578,21 @@ def barchart_build_deltas(variant_tags: list, pins: dict, areas: list) -> dict:
                 "unit": "bytes",
                 "decimals": 0,
                 "color": {"mode": "palette-classic"},
+                # Drawn as a line rather than used for colour: it is the one
+                # thing the axis was still carrying. Growth and saving are only
+                # opposite directions if the line they turn on is visible.
+                "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                        {"color": "transparent", "value": None},
+                        {"color": "text", "value": 0},
+                    ],
+                },
                 "custom": {
                     "fillOpacity": 100,
                     "lineWidth": 0,
                     "gradientMode": "hue",
+                    "thresholdsStyle": {"mode": "line"},
                     # Without it the axis fits the data, and a day of +8 B
                     # builds is drawn with the same swing as a day of +5 KiB.
                     "axisCenteredZero": True,
@@ -589,16 +601,18 @@ def barchart_build_deltas(variant_tags: list, pins: dict, areas: list) -> dict:
                     # is a log scale that stays linear across the origin, so
                     # the +8 B builds are visible next to a +5 KiB one instead
                     # of being flattened to the same nothing.
-                    #
-                    # Base 10 even though the values are bytes: base 2 draws a
-                    # gridline on every doubling, which over the range a delta
-                    # covers is fourteen labels a side and they overlap into an
-                    # unreadable stack. Ten gives four.
                     "scaleDistribution": {
                         "type": "symlog",
-                        "log": 10,
+                        "log": 2,
                         "linearThreshold": 1,
                     },
+                    # Without labels, though. Grafana hands log tick generation
+                    # to uPlot and exposes nothing to thin it out -- not even
+                    # the base, which it does not pass for symlog -- so at this
+                    # height they stack into an unreadable column. A log axis
+                    # is a poor ruler anyway: the byte counts are on the bars,
+                    # in the tooltip, and in the table below.
+                    "axisPlacement": "hidden",
                 },
             },
             "overrides": [],

@@ -300,9 +300,13 @@ Its y axis is symlog — a log scale that stays linear across the origin, becaus
 a delta is regularly zero and often negative and a plain log axis can draw
 neither. Most builds move a handful of bytes and one in a hundred moves five
 kilobytes; on a linear axis that one bar is the chart and the rest are a flat
-line. Base 10 rather than the base 2 the unit suggests: a gridline on every
-doubling is fourteen labels a side, and they overlap into a stack that cannot be
-read.
+line.
+
+It has no y axis. Grafana leaves log tick generation to uPlot and offers nothing
+to thin it out, so the labels stack into an unreadable column at any height this
+panel is likely to get; a log axis makes a poor ruler in any case. What is left
+is a zero line, the value on each bar, and the exact bytes in the tooltip and in
+the build list below.
 
 The panels about the flow of work count the whole project. The ones about how
 much room is left cannot: a bootloader on one board and an application on
