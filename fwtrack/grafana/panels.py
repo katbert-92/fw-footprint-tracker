@@ -247,10 +247,6 @@ def barchart_delta(variant_tags: list) -> dict:
 
 ALL_BRANCHES = " · all branches"
 
-# Fixed per area, matching the order palette-classic hands out on the chart
-# beside it, so the same area is the same colour on both.
-AREA_COLOURS = ["green", "yellow", "blue", "orange", "purple"]
-
 
 def _scope(pins: dict) -> str:
     """Title suffix naming the slice a panel is pinned to.
@@ -352,7 +348,7 @@ def table_punchcard() -> dict:
         "type": "table",
         "title": "When builds happen" + ALL_BRANCHES,
         "datasource": DS,
-        "gridPos": {"h": 8, "w": 14, "x": 0, "y": 39},
+        "gridPos": {"h": 8, "w": 14, "x": 0, "y": 30},
         "timeFrom": "30d",
         "targets": _target(queries.builds_by_weekday_and_hour(), table=True),
         "options": {"showHeader": True, "cellHeight": "sm"},
@@ -399,7 +395,7 @@ def table_latest_builds(variant_tags: list, pins: dict, areas: list) -> dict:
     return _table(
         "Latest builds" + _scope(pins),
         queries.latest_builds(variant_tags, pins, areas),
-        {"h": 14, "w": 14, "x": 0, "y": 25},
+        {"h": 14, "w": 14, "x": 0, "y": 16},
         # No width on any column. Grafana sizes them to their contents, and the
         # floor is what decides whether it may: the default 150 is more than ten
         # columns can have in half a screen, so it gave up and overflowed.
@@ -434,7 +430,7 @@ def table_authors() -> dict:
     return _table(
         "Who builds" + ALL_BRANCHES,
         queries.builds_by("author"),
-        {"h": 8, "w": 8, "x": 0, "y": 47},
+        {"h": 8, "w": 8, "x": 0, "y": 38},
     )
 
 
@@ -444,7 +440,7 @@ def table_branches() -> dict:
     return _table(
         "Busiest branches",
         queries.builds_by("branch"),
-        {"h": 8, "w": 8, "x": 8, "y": 47},
+        {"h": 8, "w": 8, "x": 8, "y": 38},
         # Branch names here are 'feature/ED-1767/self-test-mvp-sensors', and two
         # counters need no room at all; without this they split the width evenly
         # and the only column with anything to say is the one that gets cut.
@@ -458,7 +454,7 @@ def table_branches() -> dict:
 
 
 def table_origins() -> dict:
-    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 47})
+    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 38})
 
 
 def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
@@ -575,65 +571,23 @@ def barchart_build_deltas(variant_tags: list, pins: dict, areas: list) -> dict:
                 "custom": {
                     "fillOpacity": 100,
                     "lineWidth": 0,
-                    "gradientMode": "opacity",
+                    "gradientMode": "hue",
                     # Without it the axis fits the data, and a day of +8 B
                     # builds is drawn with the same swing as a day of +5 KiB.
                     "axisCenteredZero": True,
+                    # Symlog rather than log: a delta is regularly zero and
+                    # often negative, and a log axis can draw neither. Symlog
+                    # is a log scale that stays linear across the origin, so
+                    # the +8 B builds are visible next to a +5 KiB one instead
+                    # of being flattened to the same nothing.
+                    "scaleDistribution": {
+                        "type": "symlog",
+                        "log": 2,
+                        "linearThreshold": 1,
+                    },
                 },
             },
             "overrides": [],
-        },
-    }
-
-
-def timeseries_build_deltas(variant_tags: list, pins: dict, areas: list) -> dict:
-    """The bar chart above, on the calendar instead of on the commit.
-
-    The hash cannot be an axis label here, so it is part of the series name and
-    the tooltip carries it: hovering a bar says which commit it was. That means
-    a series per build and area, which is why the legend is off -- what it would
-    list is a hundred names, each of them already on the bar being pointed at.
-
-    The colour then has to come from an override per area rather than from the
-    palette, which would give every commit a colour of its own.
-    """
-    return {
-        "type": "timeseries",
-        "title": "What each build cost, over time" + _scope(pins),
-        "datasource": DS,
-        "gridPos": {"h": 9, "w": 14, "x": 0, "y": 16},
-        "targets": _target(queries.delta_over_time(variant_tags, pins)),
-        "options": {
-            "legend": {"showLegend": False},
-            "tooltip": {"mode": "multi", "sort": "none"},
-        },
-        "fieldConfig": {
-            "defaults": {
-                "unit": "bytes",
-                "decimals": 0,
-                "custom": {
-                    "drawStyle": "bars",
-                    "fillOpacity": 100,
-                    "lineWidth": 0,
-                    "barAlignment": 0,
-                    # Builds come in bursts minutes apart, and a bar sized to
-                    # the gap between two of those is a hairline; sized to the
-                    # gap before the quiet week it would swallow the panel.
-                    "barMaxWidth": 14,
-                    "showPoints": "never",
-                    "gradientMode": "opacity",
-                    "axisCenteredZero": True,
-                },
-            },
-            "overrides": [
-                {
-                    "matcher": {"id": "byRegexp", "options": f"^.* · {re.escape(area)}$"},
-                    "properties": [
-                        {"id": "color", "value": {"mode": "fixed", "fixedColor": colour}}
-                    ],
-                }
-                for area, colour in zip(areas, AREA_COLOURS * len(areas))
-            ],
         },
     }
 

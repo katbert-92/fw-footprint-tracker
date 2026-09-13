@@ -284,7 +284,6 @@ def build_activity_dashboard(
             panels.gauge_area_totals(variant_tags, pins),
             panels.table_tightest_regions(variant_tags, pins),
             panels.barchart_build_deltas(variant_tags, pins, areas),
-            panels.timeseries_build_deltas(variant_tags, pins, areas),
             panels.table_latest_builds(variant_tags, pins, areas),
             panels.timeseries_fullness(variant_tags, pins, areas),
             panels.table_punchcard(),

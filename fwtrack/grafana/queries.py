@@ -491,37 +491,6 @@ FROM (
 ORDER BY built_at"""
 
 
-def delta_over_time(variant_tags: list, pins: dict | None = None, limit: int = 40) -> str:
-    """The same deltas as delta_per_build, on a real time axis.
-
-    Both charts are worth having. The commit axis makes two neighbouring builds
-    comparable; this one shows the rhythm that axis flattens -- a morning of a
-    dozen builds against a quiet week -- which is the shape of how the work was
-    actually done.
-
-    A time axis has no room for the hash, so it moves into the series name,
-    where the tooltip picks it up: hovering a bar names the commit it belongs
-    to. That costs a series per build and area, so the legend is off and the
-    number of builds is capped rather than left to the time range.
-    """
-    return f"""{_build_deltas(variant_tags, pins)},
-recent AS (
-  SELECT build_id
-  FROM deltas
-  WHERE $__timeFilter(built_at)
-  GROUP BY build_id, built_at
-  ORDER BY built_at DESC
-  LIMIT {int(limit)}
-)
-SELECT built_at AS time,
-       delta AS value,
-       left(commit, 8) || CASE WHEN dirty THEN '*' ELSE '' END || ' · ' || area AS metric
-FROM deltas
-WHERE build_id IN (SELECT build_id FROM recent)
-  AND delta IS NOT NULL
-ORDER BY 1"""
-
-
 def fullness_over_time(variant_tags: list, pins: dict | None = None) -> str:
     """Every measurement of how full each area is, one point per build.
 
