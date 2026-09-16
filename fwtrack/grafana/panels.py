@@ -430,7 +430,7 @@ def table_latest_builds(variant_tags: list, pins: dict, areas: list) -> dict:
             {
                 "matcher": {"id": "byRegexp", "options": "^.+ %$"},
                 "properties": [
-                    {"id": "custom.width", "value": 78},
+                    {"id": "custom.width", "value": 110},
                     {"id": "unit", "value": "percent"},
                     {"id": "decimals", "value": 1},
                     {"id": "min", "value": 0},
@@ -442,7 +442,7 @@ def table_latest_builds(variant_tags: list, pins: dict, areas: list) -> dict:
             {
                 "matcher": {"id": "byRegexp", "options": "^.+ Δ$"},
                 "properties": [
-                    {"id": "custom.width", "value": 88},
+                    {"id": "custom.width", "value": 120},
                     {"id": "mappings", "value": signs},
                     {"id": "custom.cellOptions", "value": {"type": "color-text"}},
                     # Text columns align left, and a column of numbers that does
