@@ -231,9 +231,8 @@ def barchart_by_build(variant_tags: list) -> dict:
             "barWidth": 0.87,
             "groupWidth": 0.88,
             "fullHighlight": False,
-            "xTickLabelRotation": 0,
-            # Without spacing every build gets a label and they overlap into a
-            # grey smear.
+            # Commit and time make a label wider than a bar; level they overlap.
+            "xTickLabelRotation": -30,
             "xTickLabelSpacing": 100,
             "legend": {
                 "displayMode": "table",
@@ -368,7 +367,7 @@ def table_punchcard() -> dict:
         "type": "table",
         "title": "When builds happen" + ALL_BRANCHES,
         "datasource": DS,
-        "gridPos": {"h": 11, "w": 14, "x": 0, "y": 30},
+        "gridPos": {"h": 10, "w": 14, "x": 0, "y": 30},
         "timeFrom": "30d",
         "targets": _target(queries.builds_by_weekday_and_hour(), table=True),
         "options": {"showHeader": True, "cellHeight": "sm"},
@@ -459,7 +458,7 @@ def table_authors() -> dict:
     return _table(
         "Who builds" + ALL_BRANCHES,
         queries.builds_by("author"),
-        {"h": 8, "w": 8, "x": 0, "y": 41},
+        {"h": 8, "w": 8, "x": 0, "y": 40},
     )
 
 
@@ -469,7 +468,7 @@ def table_branches() -> dict:
     return _table(
         "Busiest branches",
         queries.builds_by("branch"),
-        {"h": 8, "w": 8, "x": 8, "y": 41},
+        {"h": 8, "w": 8, "x": 8, "y": 40},
         # Branch names here are 'feature/ED-1767/self-test-mvp-sensors', and two
         # counters need no room at all; without this they split the width evenly
         # and the only column with anything to say is the one that gets cut.
@@ -483,7 +482,7 @@ def table_branches() -> dict:
 
 
 def table_origins() -> dict:
-    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 41})
+    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 40})
 
 
 def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
@@ -497,7 +496,7 @@ def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
         "type": "timeseries",
         "title": "How full, per memory area" + _scope(pins),
         "datasource": DS,
-        "gridPos": {"h": 25, "w": 10, "x": 14, "y": 16},
+        "gridPos": {"h": 24, "w": 10, "x": 14, "y": 16},
         "targets": _target(queries.fullness_over_time(variant_tags, pins))
         + _target(queries.fullness_bytes_over_time(variant_tags, pins), ref="B"),
         "options": {
