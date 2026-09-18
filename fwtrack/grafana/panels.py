@@ -154,42 +154,6 @@ def timeseries_trend(variant_tags: list) -> dict:
     }
 
 
-def _bars(title: str, sql: str, grid: dict) -> dict:
-    """Bars over time rather than a bar chart panel.
-
-    The bar chart wants one column per series, which has to be written into the
-    SQL; with the panel repeated across areas and a single shared query that
-    puts every region of the project on every area's chart. A time series takes
-    the series name from a column, so each repeat shows only its own regions.
-    """
-    return {
-        "type": "timeseries",
-        "title": title,
-        "datasource": DS,
-        "gridPos": grid,
-        "targets": _target(sql),
-        "options": {
-            "legend": {"displayMode": "list", "placement": "bottom", "showLegend": True},
-            "tooltip": {"mode": "multi", "sort": "desc"},
-        },
-        "fieldConfig": {
-            "defaults": {
-                "unit": "bytes",
-                "decimals": 1,
-                "custom": {
-                    "drawStyle": "bars",
-                    "fillOpacity": 85,
-                    "lineWidth": 0,
-                    "barAlignment": 0,
-                    "showPoints": "never",
-                    "axisSoftMin": 0,
-                },
-            },
-            "overrides": [],
-        },
-    }
-
-
 def barchart_by_build(variant_tags: list) -> dict:
     """Bytes per region per build, one bar group per build.
 
@@ -251,14 +215,6 @@ def barchart_by_build(variant_tags: list) -> dict:
             "overrides": [],
         },
     }
-
-
-def barchart_delta(variant_tags: list) -> dict:
-    return _bars(
-        "Delta vs previous build — $area",
-        queries.delta_by_build(variant_tags),
-        {"h": 8, "w": 24, "x": 0, "y": 29},
-    )
 
 
 # ── Activity dashboard ──────────────────────────────────────────────────────

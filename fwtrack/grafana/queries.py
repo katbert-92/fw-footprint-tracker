@@ -111,64 +111,6 @@ FROM (
 ORDER BY 1"""
 
 
-def _delta_cte(variant_tags: list, area_filter: bool = True) -> str:
-    """Change against the previous build of the same region on the same branch.
-
-    Partitioning by branch as well as region matters: comparing a commit on one
-    branch against the previous build on another produces a number that means
-    nothing.
-
-    Computed over the whole history and filtered by time afterwards. With the
-    range applied here instead, the build a change is measured against would be
-    cut off whenever it fell outside the window -- and since most builds are the
-    only one of their branch and variant on a given day, the panel came out
-    empty exactly when it was most needed.
-    """
-    area = "\n    AND area = '$area'" if area_filter else ""
-    return f"""WITH deltas AS (
-  SELECT build_id,
-         built_at,
-         commit,
-         region,
-         branch,
-         used - LAG(used) OVER (PARTITION BY region, branch ORDER BY built_at) AS delta
-  FROM memory_points
-{_filters(variant_tags, time_filter=False)}{area}
-)"""
-
-
-def toolchain_changes(variant_tags: list) -> str:
-    """When the compiler changed, as a Grafana annotation.
-
-    A value that changes twice a year has no business being a column on a
-    thousand rows. As a mark on the time axis it answers the question it is
-    actually asked -- "everything grew here, did we change compiler?" -- on the
-    chart where the jump is seen, rather than in a table somewhere else.
-
-    LAG runs over the whole history and the time filter is applied after it, so
-    a change is still reported when the build before it falls outside the range.
-    Partitioned by variant: different platforms may well be built with different
-    toolchains, and ordering those into one sequence would mark every build as a
-    change.
-    """
-    conditions = ["project = '$project'", "toolchain IS NOT NULL"]
-    conditions += [f"{_dimension(tag)} = '${tag}'" for tag in variant_tags]
-
-    return f"""SELECT built_at AS time,
-       'Toolchain: ' || toolchain AS text
-FROM (
-  SELECT built_at,
-         toolchain,
-         LAG(toolchain) OVER (ORDER BY built_at) AS previous
-  FROM builds
-  WHERE {" AND ".join(conditions)}
-) changes
-WHERE previous IS DISTINCT FROM toolchain
-  AND previous IS NOT NULL
-  AND $__timeFilter(built_at)
-ORDER BY 1"""
-
-
 def by_build(variant_tags: list) -> str:
     """Bytes per region per build.
 
@@ -196,17 +138,6 @@ def by_build_axis_min(variant_tags: list) -> str:
 FROM memory_points
 {_filters(variant_tags)}
     AND area = '$area'"""
-
-
-def delta_by_build(variant_tags: list) -> str:
-    return f"""{_delta_cte(variant_tags)}
-SELECT built_at AS time,
-       delta AS value,
-       region AS metric
-FROM deltas
-WHERE delta IS NOT NULL
-  AND $__timeFilter(built_at)
-ORDER BY 1"""
 
 
 def variable_values(tag: str, depends_on: list, pins: dict | None = None) -> str:
@@ -381,9 +312,9 @@ def _build_deltas(variant_tags: list, pins: dict | None = None) -> str:
     whether a commit cost anything, and which of the four flash regions it
     landed in is the next question, asked on the memory dashboard.
 
-    LAG runs over the whole history and the range is applied by the callers, as
-    in _delta_cte and for the same reason: a build compared against one that
-    fell outside the window would show a delta the size of the whole firmware.
+    LAG runs over the whole history and the range is applied by the callers: a
+    build compared against one that fell outside the window would show a delta
+    the size of the whole firmware.
     """
     return f"""WITH per_build AS (
   SELECT build_id,
@@ -435,9 +366,9 @@ def latest_builds(variant_tags: list, pins: dict | None = None, areas: list = ()
     commit hash read as three builds, and the question this table answers is
     "which commit moved it", asked once per commit.
 
-    LAG runs over the whole history and the range is applied after it, exactly
-    as in _delta_cte and for the same reason: a build compared against one that
-    fell outside the window would show a delta the size of the whole firmware.
+    LAG runs over the whole history and the range is applied after it: a build
+    compared against one that fell outside the window would show a delta the
+    size of the whole firmware.
     """
     # Dropped when the panel is pinned to one branch: a column carrying the same
     # value on every row spends width to say nothing. The title already says it.
