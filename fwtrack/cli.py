@@ -91,6 +91,7 @@ def run(
     token: str | None = None,
     dsn: str | None = None,
     read_dotenv: bool = True,
+    sections: bool = False,
 ) -> int | None:
     """Analyse one build and record it. Returns the build id, or None if not recorded.
 
@@ -121,7 +122,7 @@ def run(
             f"Point at them with elf=/map_file= or [analyse] in {config_path}"
         )
 
-    analysis = analyse(elf_path, map_path)
+    analysis = analyse(elf_path, map_path, sections)
 
     if output:
         output = Path(output)

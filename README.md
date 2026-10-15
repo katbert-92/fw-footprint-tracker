@@ -166,6 +166,9 @@ track_build(config="build/fw_tracking.toml", tags=["cfg=2", "board=rev-c"])
 Nothing is read from the environment that you do not want: pass `url=`,
 `token=`, `dsn=`, `read_dotenv=False`.
 
+For a closer look while debugging, `sections=True` also prints every allocated
+section with its region and size.
+
 ### Branches in CI
 
 The branch comes from git, and from the CI environment when git cannot name it
