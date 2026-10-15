@@ -154,42 +154,6 @@ def timeseries_trend(variant_tags: list) -> dict:
     }
 
 
-def _bars(title: str, sql: str, grid: dict) -> dict:
-    """Bars over time rather than a bar chart panel.
-
-    The bar chart wants one column per series, which has to be written into the
-    SQL; with the panel repeated across areas and a single shared query that
-    puts every region of the project on every area's chart. A time series takes
-    the series name from a column, so each repeat shows only its own regions.
-    """
-    return {
-        "type": "timeseries",
-        "title": title,
-        "datasource": DS,
-        "gridPos": grid,
-        "targets": _target(sql),
-        "options": {
-            "legend": {"displayMode": "list", "placement": "bottom", "showLegend": True},
-            "tooltip": {"mode": "multi", "sort": "desc"},
-        },
-        "fieldConfig": {
-            "defaults": {
-                "unit": "bytes",
-                "decimals": 1,
-                "custom": {
-                    "drawStyle": "bars",
-                    "fillOpacity": 85,
-                    "lineWidth": 0,
-                    "barAlignment": 0,
-                    "showPoints": "never",
-                    "axisSoftMin": 0,
-                },
-            },
-            "overrides": [],
-        },
-    }
-
-
 def barchart_by_build(variant_tags: list) -> dict:
     """Bytes per region per build, one bar group per build.
 
@@ -202,7 +166,27 @@ def barchart_by_build(variant_tags: list) -> dict:
         "title": "By build — $area",
         "datasource": DS,
         "gridPos": {"h": 10, "w": 24, "x": 0, "y": 19},
-        "targets": _target(queries.by_build(variant_tags)),
+        "targets": _target(queries.by_build(variant_tags), table=True)
+        + _target(queries.by_build_axis_min(variant_tags), table=True, ref="B"),
+        "transformations": [
+            {
+                "id": "groupingToMatrix",
+                "options": {
+                    "rowField": "build",
+                    "columnField": "region",
+                    "valueField": "used",
+                    "emptyValue": "null",
+                },
+            },
+            {
+                "id": "configFromData",
+                "options": {
+                    "configRefId": "B",
+                    "mappings": [{"fieldName": "min", "handlerKey": "min"}],
+                    "applyTo": {"id": "byType", "options": "number"},
+                },
+            }
+        ],
         "options": {
             "orientation": "auto",
             "showValue": "always",
@@ -211,9 +195,8 @@ def barchart_by_build(variant_tags: list) -> dict:
             "barWidth": 0.87,
             "groupWidth": 0.88,
             "fullHighlight": False,
-            "xTickLabelRotation": 0,
-            # Without spacing every build gets a label and they overlap into a
-            # grey smear.
+            # Commit and time make a label wider than a bar; level they overlap.
+            "xTickLabelRotation": -30,
             "xTickLabelSpacing": 100,
             "legend": {
                 "displayMode": "table",
@@ -234,14 +217,6 @@ def barchart_by_build(variant_tags: list) -> dict:
     }
 
 
-def barchart_delta(variant_tags: list) -> dict:
-    return _bars(
-        "Delta vs previous build — $area",
-        queries.delta_by_build(variant_tags),
-        {"h": 8, "w": 24, "x": 0, "y": 29},
-    )
-
-
 # ── Activity dashboard ──────────────────────────────────────────────────────
 
 
@@ -258,7 +233,9 @@ def _scope(pins: dict) -> str:
     return f" · {pins['branch']}" if pins.get("branch") else ALL_BRANCHES
 
 
-def _table(title: str, sql: str, grid: dict, overrides: list | None = None) -> dict:
+def _table(
+    title: str, sql: str, grid: dict, overrides: list | None = None, custom: dict | None = None
+) -> dict:
     return {
         "type": "table",
         "title": title,
@@ -267,7 +244,7 @@ def _table(title: str, sql: str, grid: dict, overrides: list | None = None) -> d
         "targets": _target(sql, table=True),
         "options": {"showHeader": True},
         "fieldConfig": {
-            "defaults": {"custom": {"align": "auto", "filterable": True}},
+            "defaults": {"custom": {"align": "auto", "filterable": True, **(custom or {})}},
             "overrides": overrides or [],
         },
     }
@@ -334,38 +311,6 @@ def gauge_area_totals(variant_tags: list, pins: dict) -> dict:
     }
 
 
-def timeseries_builds_over_time() -> dict:
-    return {
-        "type": "timeseries",
-        "title": "Builds over time" + ALL_BRANCHES,
-        "datasource": DS,
-        "gridPos": {"h": 9, "w": 14, "x": 0, "y": 7},
-        "targets": _target(queries.builds_over_time()),
-        "options": {
-            "legend": {"showLegend": True},
-            "tooltip": {"mode": "single"},
-        },
-        "fieldConfig": {
-            "defaults": {
-                "decimals": 0,
-                "color": {"mode": "continuous-viridis"},
-                "custom": {
-                    "drawStyle": "bars",
-                    "fillOpacity": 55,
-                    "lineWidth": 2,
-                    "showPoints": "auto",
-                    "axisSoftMin": 0,
-                    "gradientMode": "scheme",
-                    "lineInterpolation": "smooth",
-                    "barWidthFactor": 0.7,
-                    "showValues": True,
-                },
-            },
-            "overrides": [],
-        },
-    }
-
-
 def table_punchcard() -> dict:
     """Weekday against hour, coloured like a contribution graph.
 
@@ -378,7 +323,7 @@ def table_punchcard() -> dict:
         "type": "table",
         "title": "When builds happen" + ALL_BRANCHES,
         "datasource": DS,
-        "gridPos": {"h": 8, "w": 14, "x": 0, "y": 30},
+        "gridPos": {"h": 10, "w": 14, "x": 0, "y": 30},
         "timeFrom": "30d",
         "targets": _target(queries.builds_by_weekday_and_hour(), table=True),
         "options": {"showHeader": True, "cellHeight": "sm"},
@@ -415,45 +360,50 @@ def table_latest_builds(variant_tags: list, pins: dict, areas: list) -> dict:
     Deltas coloured rather than gauged: at ten columns in fourteen grid units a
     gauge cell is a smear, while a red number is legible at any width.
     """
-    # Any growth at all is worth a tint; the ladder in _threshold_steps is
-    # about how full something is, which is a different question.
-    grew = {
-        "mode": "absolute",
-        "steps": [{"color": "green", "value": None}, {"color": "red", "value": 1}],
-    }
+    # The deltas arrive as signed text ('+488 B', '-1.5 KiB'), so the colour
+    # comes from matching the sign rather than from thresholds: growth red,
+    # a saving blue, an unchanged build left in the base colour.
+    signs = [
+        {"type": "regex", "options": {"pattern": r"^\+.*", "result": {"color": "red", "index": 0}}},
+        {"type": "regex", "options": {"pattern": "^-.*", "result": {"color": "blue", "index": 1}}},
+    ]
     return _table(
         "Latest builds" + _scope(pins),
         queries.latest_builds(variant_tags, pins, areas),
         {"h": 14, "w": 14, "x": 0, "y": 16},
+        # A floor rather than a width on most columns: the default 150 is more
+        # than ten columns can have in half a screen, so Grafana gave up and
+        # overflowed. The two kinds of column that do get a width are the ones
+        # whose content is a known size -- a timestamp, and a byte count of at
+        # most a few characters -- and pinning those is what leaves the rest to
+        # the commit and the author.
+        custom={"minWidth": 80},
         overrides=[
             {
                 "matcher": {"id": "byName", "options": "Time"},
-                "properties": [{"id": "custom.width", "value": 165}],
-            },
-            {
-                "matcher": {"id": "byName", "options": "Commit"},
-                "properties": [{"id": "custom.width", "value": 90}],
+                "properties": [{"id": "custom.width", "value": 170}],
             },
             {
                 "matcher": {"id": "byRegexp", "options": "^.+ %$"},
                 "properties": [
+                    {"id": "custom.width", "value": 110},
                     {"id": "unit", "value": "percent"},
                     {"id": "decimals", "value": 1},
                     {"id": "min", "value": 0},
                     {"id": "max", "value": 100},
                     {"id": "thresholds", "value": _threshold_steps([75, 85, 95])},
                     {"id": "custom.cellOptions", "value": {"type": "color-text"}},
-                    {"id": "custom.width", "value": 80},
                 ],
             },
             {
                 "matcher": {"id": "byRegexp", "options": "^.+ Δ$"},
                 "properties": [
-                    {"id": "unit", "value": "bytes"},
-                    {"id": "decimals", "value": 0},
-                    {"id": "thresholds", "value": grew},
+                    {"id": "custom.width", "value": 120},
+                    {"id": "mappings", "value": signs},
                     {"id": "custom.cellOptions", "value": {"type": "color-text"}},
-                    {"id": "custom.width", "value": 90},
+                    # Text columns align left, and a column of numbers that does
+                    # not line up on its last digit cannot be scanned.
+                    {"id": "custom.align", "value": "right"},
                 ],
             },
         ],
@@ -464,7 +414,7 @@ def table_authors() -> dict:
     return _table(
         "Who builds" + ALL_BRANCHES,
         queries.builds_by("author"),
-        {"h": 8, "w": 8, "x": 0, "y": 38},
+        {"h": 8, "w": 8, "x": 0, "y": 40},
     )
 
 
@@ -474,12 +424,21 @@ def table_branches() -> dict:
     return _table(
         "Busiest branches",
         queries.builds_by("branch"),
-        {"h": 8, "w": 8, "x": 8, "y": 38},
+        {"h": 8, "w": 8, "x": 8, "y": 40},
+        # Branch names here are 'feature/ED-1767/self-test-mvp-sensors', and two
+        # counters need no room at all; without this they split the width evenly
+        # and the only column with anything to say is the one that gets cut.
+        overrides=[
+            {
+                "matcher": {"id": "byName", "options": "name"},
+                "properties": [{"id": "custom.width", "value": 320}],
+            }
+        ],
     )
 
 
 def table_origins() -> dict:
-    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 38})
+    return _table("Where from", queries.builds_by("origin"), {"h": 8, "w": 8, "x": 16, "y": 40})
 
 
 def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
@@ -493,7 +452,7 @@ def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
         "type": "timeseries",
         "title": "How full, per memory area" + _scope(pins),
         "datasource": DS,
-        "gridPos": {"h": 22, "w": 10, "x": 14, "y": 16},
+        "gridPos": {"h": 24, "w": 10, "x": 14, "y": 16},
         "targets": _target(queries.fullness_over_time(variant_tags, pins))
         + _target(queries.fullness_bytes_over_time(variant_tags, pins), ref="B"),
         "options": {
@@ -508,9 +467,9 @@ def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
         "fieldConfig": {
             "defaults": {
                 # The defaults describe the bytes series and the override the
-                # percentages, not the other way round: only the percentages
-                # have a fixed scale, and a default of 0-100 would flatten
-                # every byte count against the top of the panel.
+                # percentages, not the other way round: bytes are the majority
+                # here, and a percent unit on the default would label every byte
+                # count as a percentage.
                 "unit": "bytes",
                 "decimals": 1,
                 "custom": {
@@ -536,13 +495,109 @@ def timeseries_fullness(variant_tags: list, pins: dict, areas: list) -> dict:
                     "matcher": {"id": "byRegexp", "options": percent},
                     "properties": [
                         {"id": "unit", "value": "percent"},
-                        {"id": "min", "value": 0},
-                        {"id": "max", "value": 100},
+                        # Back to auto, against the one decimal the bytes axis
+                        # wants: without min/max this axis fits whatever band
+                        # the data occupies, and a fixed decimal there prints
+                        # the same tick label twice once the band is narrow.
+                        {"id": "decimals", "value": None},
+                        # No min/max: a pinned 0-100 makes the left axis the one
+                        # axis that ignores the series you picked, so a single
+                        # percentage line sits flat while its bytes twin, which
+                        # has no fixed scale, shows the same movement in full.
                         {"id": "custom.axisPlacement", "value": "left"},
                         {"id": "thresholds", "value": _threshold_steps([75, 85, 95])},
                     ],
                 }
             ],
+        },
+    }
+
+
+def barchart_build_deltas(variant_tags: list, pins: dict, areas: list) -> dict:
+    """What each build cost, commit by commit.
+
+    The same numbers as the Δ columns of the build list, as a shape. A table
+    answers "how much did this commit cost"; the chart answers "which commit
+    was it", which is the question actually being asked when a chart is opened
+    at all.
+
+    Zero centred, so a saving reads as a bar below the line rather than as an
+    absence, and the run of unchanged builds either side of a jump stays
+    visible as a flat stretch.
+    """
+    # Per area rather than on the defaults, which would take the commit axis
+    # with it: the placement of every field is the placement of the x field too.
+    no_axis = [
+        {
+            "matcher": {"id": "byName", "options": area},
+            "properties": [{"id": "custom.axisPlacement", "value": "hidden"}],
+        }
+        for area in areas
+    ]
+    return {
+        "type": "barchart",
+        "title": "What each build cost" + _scope(pins),
+        "datasource": DS,
+        "gridPos": {"h": 9, "w": 14, "x": 0, "y": 7},
+        "targets": _target(queries.delta_per_build(variant_tags, pins, areas), table=True),
+        "options": {
+            "orientation": "vertical",
+            "xField": "Build",
+            "xTickLabelRotation": -45,
+            # Auto, so every hash that fits is drawn. The point of a commit axis
+            # is that a bar can be traced back to what caused it, and a fixed
+            # spacing drops labels that had room for themselves.
+            "xTickLabelSpacing": 0,
+            "showValue": "auto",
+            "stacking": "none",
+            "barRadius": 0.1,
+            "barWidth": 0.85,
+            "groupWidth": 1,
+            "fullHighlight": False,
+            "legend": {"displayMode": "list", "placement": "bottom", "showLegend": True},
+            "tooltip": {"mode": "multi", "sort": "none"},
+        },
+        "fieldConfig": {
+            "defaults": {
+                "unit": "bytes",
+                "decimals": 0,
+                "color": {"mode": "palette-classic"},
+                # Drawn as a line rather than used for colour: it is the one
+                # thing the axis was still carrying. Growth and saving are only
+                # opposite directions if the line they turn on is visible.
+                "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                        {"color": "transparent", "value": None},
+                        {"color": "text", "value": 0},
+                    ],
+                },
+                "custom": {
+                    "fillOpacity": 100,
+                    "lineWidth": 0,
+                    "gradientMode": "hue",
+                    "thresholdsStyle": {"mode": "line"},
+                    # Without it the axis fits the data, and a day of +8 B
+                    # builds is drawn with the same swing as a day of +5 KiB.
+                    "axisCenteredZero": True,
+                    # Symlog rather than log: a delta is regularly zero and
+                    # often negative, and a log axis can draw neither. Symlog
+                    # is a log scale that stays linear across the origin, so
+                    # the +8 B builds are visible next to a +5 KiB one instead
+                    # of being flattened to the same nothing.
+                    "scaleDistribution": {
+                        "type": "symlog",
+                        "log": 2,
+                        "linearThreshold": 1,
+                    },
+                },
+            },
+            # Hidden, not absent. Grafana hands log tick generation to uPlot and
+            # exposes nothing to thin it out -- not even the base, which it does
+            # not pass for symlog -- so at this height the labels stack into an
+            # unreadable column. A log axis is a poor ruler anyway: the byte
+            # counts are on the bars, in the tooltip, and in the table below.
+            "overrides": no_axis,
         },
     }
 

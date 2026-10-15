@@ -100,9 +100,41 @@ def print_memory_usage(region_usage: dict) -> None:
     print(tabulate(table, headers=headers, tablefmt="grid", colalign=colalign))
 
 
-def analyse(elf_path: Path, map_path: Path) -> dict:
+def section_usage(regions: dict, sections: dict) -> list:
+    """Allocated sections with the region each one runs from.
+
+    Placed by run address, so .data shows under RAM only; its initialiser in
+    flash is not a separate row.
+    """
+
+    def region_of(addr: int) -> str:
+        for name, region in regions.items():
+            if region["origin"] <= addr < region["origin"] + region["length"]:
+                return name
+        return "-"
+
+    return [
+        {"section": name, "region": region_of(h["sh_addr"]), "addr": h["sh_addr"], "size": h["sh_size"]}
+        for name, h in sections.items()
+        if h["sh_addr"] and h["sh_size"]
+    ]
+
+
+def print_sections(sections: list) -> None:
+    table = [
+        [s["section"], s["region"], f"0x{s['addr']:08x}", s["size"], f"{s['size'] / 1024:.2f}"]
+        for s in sections
+    ]
+    headers = ["Section", "Region", "Addr", "Size (B)", "Size (KB)"]
+    print(tabulate(table, headers=headers, tablefmt="grid"))
+
+
+def analyse(elf_path: Path, map_path: Path, sections: bool = False) -> dict:
     map_info = MapParser(map_path).get_regions_info()
     elf = ElfParser(elf_path)
+
+    if sections:
+        print_sections(section_usage(map_info, elf.get_sections_info()))
 
     usage = compute_memory_usage(map_info, elf.get_segments_info())
     print_memory_usage(usage)

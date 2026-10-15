@@ -166,6 +166,9 @@ track_build(config="build/fw_tracking.toml", tags=["cfg=2", "board=rev-c"])
 Nothing is read from the environment that you do not want: pass `url=`,
 `token=`, `dsn=`, `read_dotenv=False`.
 
+For a closer look while debugging, `sections=True` also prints every allocated
+section with its region and size.
+
 ### Branches in CI
 
 The branch comes from git, and from the CI environment when git cannot name it
@@ -255,16 +258,18 @@ time rather than the commit time so that local iterations stay separate.
 Variable lists follow the dashboard time range, so a project with thousands of
 dead branches stays usable.
 
-### Build activity
+### Overview
 
-`fwtrack-dash` writes a second dashboard alongside the first, about the state of
-the project rather than the detail of one region.
+`fwtrack-dash` writes two dashboards per project. **Regions** is the one above:
+every panel on it is per region, which is where a memory problem is eventually
+tracked down. **Overview** is the one to open first — the state of the project
+rather than the detail of one region.
 
 | Panel | |
 | --- | --- |
 | Common | builds, commits, branches and authors in the range |
 | Memory areas | how full each area is as a whole, on the latest build |
-| Builds over time | how many land, bucketed to the range |
+| What each build cost | bytes gained or lost per area, a bar per commit |
 | Latest builds | one row per build: commit, author, and what it did to each area |
 | When builds happen | weekday against hour, coloured; its own 30-day window |
 | Who builds / branches / origins | where the builds come from |
@@ -287,6 +292,25 @@ fixed 30 days and Grafana marks the override in its header.
 A dirty tree gets a star on its hash in `Latest builds`: the commit is real, but
 checking it out would not give you the firmware that was measured.
 
+`What each build cost` puts the commit on the x axis rather than the time. The
+same deltas are in the build list a column at a time; as a shape they answer the
+question a chart is opened for, which is *which* commit it was. Builds arrive in
+bursts of a dozen and then nothing until the next day, so a calendar axis would
+draw a cliff and a desert — here every build gets the same width, and the run of
+unchanged builds either side of a jump stays readable as a flat stretch.
+
+Its y axis is symlog — a log scale that stays linear across the origin, because
+a delta is regularly zero and often negative and a plain log axis can draw
+neither. Most builds move a handful of bytes and one in a hundred moves five
+kilobytes; on a linear axis that one bar is the chart and the rest are a flat
+line.
+
+It has no y axis. Grafana leaves log tick generation to uPlot and offers nothing
+to thin it out, so the labels stack into an unreadable column at any height this
+panel is likely to get; a log axis makes a poor ruler in any case. What is left
+is a zero line, the value on each bar, and the exact bytes in the tooltip and in
+the build list below.
+
 The panels about the flow of work count the whole project. The ones about how
 much room is left cannot: a bootloader on one board and an application on
 another have different memories, and summing them invents a chip that does not
@@ -301,6 +325,28 @@ Remembered with the project. Whatever is left unpinned stays a filter, which is
 how a project keeps the one dimension it does want to flip between — usually the
 board. Dimensions and the `branch`, `origin`, `version` and `toolchain` columns
 can all be pinned.
+
+Pinning a dimension also takes it out of the *other* dropdowns' options: a
+feature set that only the bootloader is built with is no longer offered on a
+dashboard pinned to the application, where choosing it could only ever show
+No data.
+
+Because it is remembered, a pin set once is invisible afterwards — it lives in
+the database rather than in this repository, and nothing on the dashboard says
+it is there. What a project is set to:
+
+```sql
+SELECT * FROM project_settings WHERE project = 'blinky';
+```
+
+Passing nothing keeps what is stored, which is what makes regeneration safe, so
+there is no flag that unpins. Clearing is a deliberate edit:
+
+```sql
+UPDATE project_settings SET overview_pins = NULL WHERE project = 'blinky';
+```
+
+Then regenerate.
 
 A per-build log is deliberately absent: a project that builds a dozen variants
 per commit turns one build into a dozen rows of the same hash.
@@ -402,6 +448,7 @@ builds          per build: project, time, commit, branch, author, version,
 memory_usage    per region of a build: used, total (null if unknown)
 region_budgets  warning levels, per project and region
 memory_points   a view joining them, with free and percentage computed
+project_settings  per project: dimension order, main branch, overview pins
 ```
 
 Dimensions live in JSONB, so adding one needs no migration. Writes upsert on

@@ -28,6 +28,7 @@ def _dimension(tag: str) -> str:
 # Seconds are not decoration: local rebuilds of a dirty tree share a commit and
 # land within the same minute, and without them every bar collapses into one
 # category.
+BUILD_LABEL = "LEFT(commit, 7) || CASE WHEN dirty THEN '*' ELSE '' END || ' · ' || TO_CHAR(built_at, 'MM/DD HH24:MI:SS')"
 
 
 def _filters(variant_tags: list, time_filter: bool = True) -> str:
@@ -110,101 +111,53 @@ FROM (
 ORDER BY 1"""
 
 
-def _delta_cte(variant_tags: list, area_filter: bool = True) -> str:
-    """Change against the previous build of the same region on the same branch.
-
-    Partitioning by branch as well as region matters: comparing a commit on one
-    branch against the previous build on another produces a number that means
-    nothing.
-
-    Computed over the whole history and filtered by time afterwards. With the
-    range applied here instead, the build a change is measured against would be
-    cut off whenever it fell outside the window -- and since most builds are the
-    only one of their branch and variant on a given day, the panel came out
-    empty exactly when it was most needed.
-    """
-    area = "\n    AND area = '$area'" if area_filter else ""
-    return f"""WITH deltas AS (
-  SELECT build_id,
-         built_at,
-         commit,
-         region,
-         branch,
-         used - LAG(used) OVER (PARTITION BY region, branch ORDER BY built_at) AS delta
-  FROM memory_points
-{_filters(variant_tags, time_filter=False)}{area}
-)"""
-
-
-def toolchain_changes(variant_tags: list) -> str:
-    """When the compiler changed, as a Grafana annotation.
-
-    A value that changes twice a year has no business being a column on a
-    thousand rows. As a mark on the time axis it answers the question it is
-    actually asked -- "everything grew here, did we change compiler?" -- on the
-    chart where the jump is seen, rather than in a table somewhere else.
-
-    LAG runs over the whole history and the time filter is applied after it, so
-    a change is still reported when the build before it falls outside the range.
-    Partitioned by variant: different platforms may well be built with different
-    toolchains, and ordering those into one sequence would mark every build as a
-    change.
-    """
-    conditions = ["project = '$project'", "toolchain IS NOT NULL"]
-    conditions += [f"{_dimension(tag)} = '${tag}'" for tag in variant_tags]
-
-    return f"""SELECT built_at AS time,
-       'Toolchain: ' || toolchain AS text
-FROM (
-  SELECT built_at,
-         toolchain,
-         LAG(toolchain) OVER (ORDER BY built_at) AS previous
-  FROM builds
-  WHERE {" AND ".join(conditions)}
-) changes
-WHERE previous IS DISTINCT FROM toolchain
-  AND previous IS NOT NULL
-  AND $__timeFilter(built_at)
-ORDER BY 1"""
-
-
 def by_build(variant_tags: list) -> str:
     """Bytes per region per build.
 
     Long format, one row per region: a wide one would have to name its columns
     in SQL, and since the panel is repeated across areas with a single query
-    that means every region of the project appears on every area's chart.
+    that means every region of the project appears on every area's chart. The
+panel pivots it back with a transformation.
     """
-    return f"""SELECT built_at AS time,
-       used AS value,
-       region AS metric
+    return f"""SELECT {BUILD_LABEL} AS build,
+       region,
+       used
 FROM memory_points
 {_filters(variant_tags)}
     AND area = '$area'
-ORDER BY 1"""
+ORDER BY built_at"""
 
 
-def delta_by_build(variant_tags: list) -> str:
-    return f"""{_delta_cte(variant_tags)}
-SELECT built_at AS time,
-       delta AS value,
-       region AS metric
-FROM deltas
-WHERE delta IS NOT NULL
-  AND $__timeFilter(built_at)
-ORDER BY 1"""
+def by_build_axis_min(variant_tags: list) -> str:
+    """Floor for the by-build axis: from zero, a few KiB on hundreds look flat.
+
+    Dropped below the smallest build by the spread (at least 1%), so the
+    smallest bar stays visible instead of vanishing into the axis.
+    """
+    return f"""SELECT GREATEST(0, MIN(used) - GREATEST(MAX(used) - MIN(used), MIN(used) * 0.01)) AS min
+FROM memory_points
+{_filters(variant_tags)}
+    AND area = '$area'"""
 
 
-def variable_values(tag: str, depends_on: list) -> str:
+def variable_values(tag: str, depends_on: list, pins: dict | None = None) -> str:
     """Values of one build dimension, narrowed by the dimensions before it.
 
     Without the narrowing every variable is independent, each picks its own
     first value, and their combination is easily one that never existed: cfg=1
     means -O1 while opt=0 sits next to it. The dashboard then shows No data with
     no hint as to why.
+
+    A pinned dimension narrows the same way even though it has no dropdown:
+    it is still part of the combination, and a value that exists only outside
+    the pin would otherwise be offered and show nothing.
     """
     conditions = ["project = '$project'", "$__timeFilter(built_at)"]
     conditions += [f"{_dimension(name)} = '${name}'" for name in depends_on]
+    conditions += [
+        f"{column if column in PINNABLE_COLUMNS else _dimension(column)} = {_literal(value)}"
+        for column, value in (pins or {}).items()
+    ]
 
     return (
         f"SELECT DISTINCT {_dimension(tag)} AS value\n"
@@ -311,21 +264,6 @@ FROM builds
 {FLOW_FILTER}"""
 
 
-def builds_over_time() -> str:
-    """How many builds landed, bucketed to whatever the time range deserves.
-
-    $__interval rather than a fixed hour: two days of history want hourly bars,
-    a quarter wants daily ones, and a fixed bucket is wrong for one of them.
-    """
-    return f"""SELECT $__timeGroup(built_at, $__interval) AS time,
-       count(*) AS value,
-       'builds' AS metric
-FROM builds
-{FLOW_FILTER}
-GROUP BY 1
-ORDER BY 1"""
-
-
 def builds_by(column: str, limit: int = 15) -> str:
     """Who or what most of the builds come from.
 
@@ -366,24 +304,18 @@ GROUP BY 1, extract(isodow from built_at)
 ORDER BY extract(isodow from built_at)"""
 
 
-def latest_builds(variant_tags: list, pins: dict | None = None, areas: list = ()) -> str:
-    """One row per build: which commit it was, and what it did to each area.
+def _build_deltas(variant_tags: list, pins: dict | None = None) -> str:
+    """One row per build and area: what it uses, and the change from the one
+    before it.
 
-    A column pair per area rather than a row per area: three rows sharing a
-    commit hash read as three builds, and the question this table answers is
-    "which commit moved it", asked once per commit.
+    A whole area rather than a region: this dashboard is read to find out
+    whether a commit cost anything, and which of the four flash regions it
+    landed in is the next question, asked on the memory dashboard.
 
-    LAG runs over the whole history and the range is applied after it, exactly
-    as in _delta_cte and for the same reason: a build compared against one that
-    fell outside the window would show a delta the size of the whole firmware.
+    LAG runs over the whole history and the range is applied by the callers: a
+    build compared against one that fell outside the window would show a delta
+    the size of the whole firmware.
     """
-    columns = ",\n".join(
-        f"       round(100.0 * max(used) FILTER (WHERE area = {_literal(area)})\n"
-        f"                   / NULLIF(max(total) FILTER (WHERE area = {_literal(area)}), 0), 1)"
-        f' AS "{area} %",\n'
-        f'       max(delta) FILTER (WHERE area = {_literal(area)}) AS "{area} Δ"'
-        for area in areas
-    )
     return f"""WITH per_build AS (
   SELECT build_id,
          built_at,
@@ -403,19 +335,105 @@ deltas AS (
   SELECT *,
          used - LAG(used) OVER (PARTITION BY area ORDER BY built_at, build_id) AS delta
   FROM per_build
+)"""
+
+
+def _signed_bytes(expr: str) -> str:
+    """A byte delta as signed text: '+488 B', '-1.5 KiB', '0 B'.
+
+    Grafana's byte units never print a plus, and a growth of 488 B next to a
+    saving of 488 B then differ by one thin character. Formatting here costs
+    the column its numeric sort, which this table -- ordered by time, read a
+    row at a time -- does not use.
+    """
+    return f"""CASE
+         WHEN {expr} IS NULL THEN NULL
+         WHEN {expr} = 0 THEN '0 B'
+         ELSE (CASE WHEN {expr} > 0 THEN '+' ELSE '-' END) ||
+              CASE
+                WHEN abs({expr}) < 1024 THEN abs({expr})::text || ' B'
+                WHEN abs({expr}) < 1048576
+                  THEN trim(to_char(abs({expr}) / 1024.0, 'FM999990.0')) || ' KiB'
+                ELSE trim(to_char(abs({expr}) / 1048576.0, 'FM999990.0')) || ' MiB'
+              END
+       END"""
+
+
+def latest_builds(variant_tags: list, pins: dict | None = None, areas: list = ()) -> str:
+    """One row per build: which commit it was, and what it did to each area.
+
+    A column pair per area rather than a row per area: three rows sharing a
+    commit hash read as three builds, and the question this table answers is
+    "which commit moved it", asked once per commit.
+
+    LAG runs over the whole history and the range is applied after it: a build
+    compared against one that fell outside the window would show a delta the
+    size of the whole firmware.
+    """
+    # Dropped when the panel is pinned to one branch: a column carrying the same
+    # value on every row spends width to say nothing. The title already says it.
+    branch = "" if (pins or {}).get("branch") else '       branch AS "Branch",\n'
+    columns = ",\n".join(
+        f"       round(100.0 * max(used) FILTER (WHERE area = {_literal(area)})\n"
+        f"                   / NULLIF(max(total) FILTER (WHERE area = {_literal(area)}), 0), 1)"
+        f' AS "{area} %",\n'
+        f'       max(delta_text) FILTER (WHERE area = {_literal(area)}) AS "{area} Δ"'
+        for area in areas
+    )
+    return f"""{_build_deltas(variant_tags, pins)},
+shown AS (
+  SELECT *,
+         {_signed_bytes("delta")} AS delta_text
+  FROM deltas
 )
 SELECT built_at AS "Time",
        -- A star for a dirty tree: the hash is real but the build is not what
        -- checking it out would give you.
        left(commit, 8) || CASE WHEN dirty THEN '*' ELSE '' END AS "Commit",
        COALESCE(author, '(none)') AS "Author",
-       branch AS "Branch",
-{columns}
-FROM deltas
+{branch}{columns}
+FROM shown
 WHERE $__timeFilter(built_at)
 GROUP BY build_id, built_at, commit, branch, author, dirty
 ORDER BY built_at DESC
 LIMIT 50"""
+
+
+def delta_per_build(
+    variant_tags: list, pins: dict | None = None, areas: list = (), limit: int = 40
+) -> str:
+    """What each build cost, as a bar group per commit.
+
+    The commit on the x axis rather than the time: builds arrive in bursts of a
+    dozen and then nothing until tomorrow, and on a calendar axis that is a
+    cliff followed by a desert. Here every build gets the same width, which is
+    what makes two neighbouring commits comparable at a glance.
+
+    Wide format, a column per area, because that is what the bar chart panel
+    groups by. Areas are known when the dashboard is generated, so unlike the
+    per-region charts this one can name its columns.
+    """
+    columns = ",\n".join(
+        f'         max(delta) FILTER (WHERE area = {_literal(area)}) AS "{area}"'
+        for area in areas
+    )
+    quoted = ", ".join(f'"{area}"' for area in areas)
+    return f"""{_build_deltas(variant_tags, pins)}
+SELECT "Build", {quoted}
+FROM (
+  SELECT left(commit, 8) || CASE WHEN dirty THEN '*' ELSE '' END AS "Build",
+         built_at,
+{columns}
+  FROM deltas
+  WHERE $__timeFilter(built_at)
+    AND delta IS NOT NULL
+  GROUP BY build_id, built_at, commit, dirty
+  ORDER BY built_at DESC
+  LIMIT {int(limit)}
+) newest
+-- Newest first inside, oldest first out here: the limit has to take the recent
+-- end of the history, and the chart has to read left to right.
+ORDER BY built_at"""
 
 
 def fullness_over_time(variant_tags: list, pins: dict | None = None) -> str:
@@ -426,10 +444,14 @@ def fullness_over_time(variant_tags: list, pins: dict | None = None) -> str:
     build keeps its own point. Bucketing by day and taking the worst region --
     what this did before -- hid both a second build on the same day and any
     area whose tight region never moves.
+
+    Unrounded on purpose: the panel plots this against the same measurement in
+    bytes, and rounding to 0.1% is ~400 bytes of flash -- a staircase next to a
+    line that is smooth, on an axis zoomed in far enough to show it.
     """
     return f"""SELECT built_at AS time,
        area AS metric,
-       round(100.0 * sum(used) / sum(total), 1) AS value
+       100.0 * sum(used) / sum(total) AS value
 FROM memory_points
 {_memory_filter(variant_tags, pins)}
     AND total > 0
