@@ -504,8 +504,9 @@ same tag: a branch moves under you, a tag does not.
 `curl http://<host>:8099/ingest/health` reports the version a server is running,
 which is the one thing ssh would otherwise be needed for.
 
-Cutting a release: merge `dev` into `main`, then `make release VERSION=0.1.1`
-and push what it prints.
+Cutting a release: merge `dev` into `main`, then `make release VERSION=0.1.1`.
+It sets the version in `pyproject.toml`, commits, tags and pushes. A tag made
+by hand keeps the old version, and pip will not see the update.
 
 ## Requirements
 
