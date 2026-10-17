@@ -1,4 +1,28 @@
+import re
+
 from fwtrack.grafana import gen_dashboard, queries
+
+# A variable pasted in raw: '$name' or '${name}' inside quotes, or $name next
+# to an operator. Grafana substitutes those as they are, from the page URL.
+RAW_VARIABLE = re.compile(r"'\$\{?\w+\}?'|=\s*\$(?!__)\w+\b")
+
+
+def all_sql(dashboard: dict) -> list:
+    found = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "rawSql":
+                    found.append(value)
+                else:
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(dashboard)
+    return found
 
 
 def dashboards(variant_tags=("board", "cfg"), pins=None, areas=("flash", "ram")):
@@ -7,6 +31,12 @@ def dashboards(variant_tags=("board", "cfg"), pins=None, areas=("flash", "ram"))
         "blinky", list(variant_tags), "uid", list(areas), pins or {}
     )
     return regions, overview
+
+
+def test_no_variable_reaches_the_sql_unquoted():
+    for dashboard in dashboards(pins={"branch": "dev", "board": "o'brien"}):
+        for sql in all_sql(dashboard):
+            assert not RAW_VARIABLE.search(sql), sql
 
 
 def test_pinned_values_are_escaped():

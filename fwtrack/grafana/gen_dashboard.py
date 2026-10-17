@@ -27,7 +27,7 @@ import psycopg
 from dotenv import find_dotenv, load_dotenv
 
 from .. import __version__, db
-from ..config import parse_tag_pairs
+from ..config import TAG_NAME, parse_tag_pairs
 from ..log import get_logger, setup_logging
 from . import panels, queries
 
@@ -318,6 +318,15 @@ def push(dashboard: dict, folder_uid: str | None) -> None:
 def generate(conn, project: str, args) -> None:
     """Write both dashboards for one project."""
     discovered = db.discover_variant_tags(conn, project)
+    unusable = [t for t in discovered if not TAG_NAME.fullmatch(t)]
+    if unusable:
+        # Recorded before names were checked. Grafana cannot name them as a
+        # variable, so they would filter nothing and look as if they did.
+        logger.warning(
+            f"{project}: not a usable dimension name, left out: {', '.join(unusable)}. "
+            "Rename with: fwtrack-tags rename --project ... OLD NEW"
+        )
+        discovered = [t for t in discovered if t not in unusable]
 
     # Anything given here replaces what was stored; otherwise the stored value
     # stands, so regenerating never silently reshuffles a dashboard.
