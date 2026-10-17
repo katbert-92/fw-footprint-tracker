@@ -114,6 +114,12 @@ WHERE project = %(project)s AND tags ? %(old)s
 # memory_usage goes with it: the foreign key is ON DELETE CASCADE.
 DELETE_BUILD = "DELETE FROM builds WHERE id = %s RETURNING project, commit, built_at"
 
+# A rerun of a build replaces it, regions included: one the linker script no
+# longer has must not stay behind with the numbers of the previous run.
+DROP_STALE_REGIONS = """
+DELETE FROM memory_usage WHERE build_id = %(build_id)s AND NOT region = ANY(%(regions)s)
+"""
+
 
 def record(build: dict, regions: list, url=None, token=None, dsn=None) -> int | None:
     """Store one build, over HTTP if a URL is known and straight to the database otherwise.
@@ -221,6 +227,10 @@ def write_build(conn: psycopg.Connection, build: dict, regions: list, budgets: b
         )
         build_id = cur.fetchone()[0]
 
+        cur.execute(
+            DROP_STALE_REGIONS,
+            {"build_id": build_id, "regions": [region["region"] for region in regions]},
+        )
         cur.executemany(
             INSERT_USAGE,
             [

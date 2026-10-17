@@ -76,6 +76,15 @@ def test_reader_can_read_and_nothing_else(conn, reader):
             ro.rollback()
 
 
+def test_rerun_replaces_the_build_and_its_regions(conn):
+    first = db.write_build(conn, build(), regions("FLASH", "FLASH_OLD"))
+    second = db.write_build(conn, build(), regions("FLASH", used=200))
+
+    assert first == second
+    rows = conn.execute("SELECT region, used FROM memory_usage WHERE build_id = %s", (first,))
+    assert rows.fetchall() == [("FLASH", 200)]
+
+
 def test_renaming_a_value_cannot_collide_two_builds(conn):
     db.write_build(conn, build(tags={"cfg": "52362d"}), regions("FLASH"))
     db.write_build(conn, build(tags={"cfg": "NB_B100"}), regions("FLASH"))
