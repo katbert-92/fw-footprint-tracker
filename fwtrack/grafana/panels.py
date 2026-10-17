@@ -185,7 +185,7 @@ def barchart_by_build(variant_tags: list) -> dict:
                     "mappings": [{"fieldName": "min", "handlerKey": "min"}],
                     "applyTo": {"id": "byType", "options": "number"},
                 },
-            }
+            },
         ],
         "options": {
             "orientation": "auto",

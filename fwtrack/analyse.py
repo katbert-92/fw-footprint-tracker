@@ -114,7 +114,12 @@ def section_usage(regions: dict, sections: dict) -> list:
         return "-"
 
     return [
-        {"section": name, "region": region_of(h["sh_addr"]), "addr": h["sh_addr"], "size": h["sh_size"]}
+        {
+            "section": name,
+            "region": region_of(h["sh_addr"]),
+            "addr": h["sh_addr"],
+            "size": h["sh_size"],
+        }
         for name, h in sections.items()
         if h["sh_addr"] and h["sh_size"]
     ]

@@ -28,7 +28,10 @@ def _dimension(tag: str) -> str:
 # Seconds are not decoration: local rebuilds of a dirty tree share a commit and
 # land within the same minute, and without them every bar collapses into one
 # category.
-BUILD_LABEL = "LEFT(commit, 7) || CASE WHEN dirty THEN '*' ELSE '' END || ' · ' || TO_CHAR(built_at, 'MM/DD HH24:MI:SS')"
+BUILD_LABEL = (
+    "LEFT(commit, 7) || CASE WHEN dirty THEN '*' ELSE '' END"
+    " || ' · ' || TO_CHAR(built_at, 'MM/DD HH24:MI:SS')"
+)
 
 
 def _filters(variant_tags: list, time_filter: bool = True) -> str:
@@ -117,7 +120,7 @@ def by_build(variant_tags: list) -> str:
     Long format, one row per region: a wide one would have to name its columns
     in SQL, and since the panel is repeated across areas with a single query
     that means every region of the project appears on every area's chart. The
-panel pivots it back with a transformation.
+    panel pivots it back with a transformation.
     """
     return f"""SELECT {BUILD_LABEL} AS build,
        region,
@@ -134,7 +137,8 @@ def by_build_axis_min(variant_tags: list) -> str:
     Dropped below the smallest build by the spread (at least 1%), so the
     smallest bar stays visible instead of vanishing into the axis.
     """
-    return f"""SELECT GREATEST(0, MIN(used) - GREATEST(MAX(used) - MIN(used), MIN(used) * 0.01)) AS min
+    return f"""SELECT GREATEST(0, MIN(used) - GREATEST(MAX(used) - MIN(used),
+                                       MIN(used) * 0.01)) AS min
 FROM memory_points
 {_filters(variant_tags)}
     AND area = '$area'"""
@@ -414,8 +418,7 @@ def delta_per_build(
     per-region charts this one can name its columns.
     """
     columns = ",\n".join(
-        f'         max(delta) FILTER (WHERE area = {_literal(area)}) AS "{area}"'
-        for area in areas
+        f'         max(delta) FILTER (WHERE area = {_literal(area)}) AS "{area}"' for area in areas
     )
     quoted = ", ".join(f'"{area}"' for area in areas)
     return f"""{_build_deltas(variant_tags, pins)}
