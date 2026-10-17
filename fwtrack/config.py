@@ -9,6 +9,7 @@ wants to slice by.
 import fnmatch
 import json
 import os
+import re
 import tomllib
 from pathlib import Path
 
@@ -23,7 +24,6 @@ CONFIG_CANDIDATES = [
     Path("build/fw_tracking.toml"),
     Path(".config/fw_tracking.toml"),
 ]
-DEFAULT_CONFIG_FILE = CONFIG_CANDIDATES[0]
 DEFAULT_ELF = Path("fw.elf")
 DEFAULT_MAP = Path("fw.map")
 FALLBACK_AREA = "other"
@@ -33,23 +33,54 @@ FALLBACK_AREA = "other"
 FALLBACK_THRESHOLDS = [75, 85, 95]
 
 # Set by the tool, never by a project. A custom tag using one of these names is
-# dropped rather than silently shadowing an axis or a legend.
+# dropped rather than silently shadowing an axis or a legend -- or a dashboard
+# variable, which shares the namespace: hence datasource.
 CORE_FIELDS = frozenset(
-    {"project", "region", "area", "commit", "branch", "version", "origin", "dirty", "toolchain"}
+    {
+        "project",
+        "region",
+        "area",
+        "commit",
+        "branch",
+        "version",
+        "origin",
+        "dirty",
+        "author",
+        "toolchain",
+        "datasource",
+    }
 )
+
+# Every tag becomes a Grafana variable, and Grafana only recognises $name when
+# name is made of word characters: board-rev would reach the SQL as the text
+# "$board-rev" and match nothing.
+TAG_NAME = re.compile(r"[A-Za-z0-9_]+")
+MAX_TAG_VALUE = 200
+
+
+def valid_tag(key: str, value: str) -> bool:
+    return bool(TAG_NAME.fullmatch(key)) and 0 < len(value) <= MAX_TAG_VALUE
 
 
 def find_config(explicit: Path | None = None) -> Path | None:
-    """Locate the tracking config, so the usual case needs no arguments."""
+    """Locate the tracking config, so the usual case needs no arguments.
+
+    One that was named outright has to exist: falling back to defaults would
+    turn a typo in a CI script into a build recorded under the wrong settings.
+    """
     if explicit:
-        return explicit if explicit.is_file() else None
+        if not explicit.is_file():
+            raise FileNotFoundError(f"Config not found: {explicit}")
+        return explicit
 
     return next((p for p in CONFIG_CANDIDATES if p.is_file()), None)
 
 
 def load_config(path: Path | None) -> dict:
-    if path is None or not path.is_file():
-        logger.warning(f"Config not found: {path}, using defaults")
+    if path is None:
+        logger.warning(
+            f"No config found ({', '.join(str(p) for p in CONFIG_CANDIDATES)}), using defaults"
+        )
         return {}
 
     with path.open("rb") as f:
@@ -193,6 +224,13 @@ def collect_custom_tags(meta: dict, config: dict, cli_tags: list) -> dict:
 
     for key in sorted(set(tags) & CORE_FIELDS):
         logger.warning(f"Custom tag '{key}' collides with a core field and is ignored")
+        del tags[key]
+
+    for key in sorted(k for k, v in tags.items() if not valid_tag(k, v)):
+        logger.warning(
+            f"Custom tag '{key}' is ignored: names are letters, digits and underscores, "
+            f"values 1 to {MAX_TAG_VALUE} characters"
+        )
         del tags[key]
 
     return tags

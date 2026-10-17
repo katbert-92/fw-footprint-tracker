@@ -3,6 +3,11 @@ import pytest
 from fwtrack import config
 
 
+def test_named_config_must_exist(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        config.find_config(tmp_path / "missing.toml")
+
+
 def test_tags_override_in_order(monkeypatch):
     settings = {"meta": {"tags": ["board"]}}
     monkeypatch.setenv("FWTRACK_TAGS", "board=env,opt=s")
@@ -12,11 +17,18 @@ def test_tags_override_in_order(monkeypatch):
     assert tags == {"board": "env", "opt": "cli"}
 
 
-@pytest.mark.parametrize("name", ["branch", "region"])
+@pytest.mark.parametrize("name", ["branch", "author", "datasource", "region"])
 def test_tags_cannot_shadow_core_fields(monkeypatch, name):
     monkeypatch.delenv("FWTRACK_TAGS", raising=False)
 
     assert config.collect_custom_tags({}, {}, [f"{name}=x"]) == {}
+
+
+@pytest.mark.parametrize("pair", ["board-rev=a", "board.rev=a", "board=" + "x" * 201])
+def test_tags_a_dashboard_cannot_use_are_dropped(monkeypatch, pair):
+    monkeypatch.delenv("FWTRACK_TAGS", raising=False)
+
+    assert config.collect_custom_tags({}, {}, [pair]) == {}
 
 
 def test_most_specific_threshold_wins():
