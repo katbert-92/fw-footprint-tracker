@@ -188,6 +188,39 @@ commit to any tip — the branch is recorded as `HEAD` and said so in the log.
 One value to notice and fix, rather than a branch list that grows for ever.
 `--branch` names it outright and skips all of the above.
 
+### ESP-IDF
+
+Recognised on its own, by the `flasher_args.json` the build writes. The linker
+regions do not describe the chip there: flash is reached through the cache MMU,
+so `irom_seg` and `drom_seg` are address windows of up to 32 MiB — on the newer
+chips one window under two names. What fills up is the app partition, so that
+is what is recorded, as `app`: the `.bin` against the smallest app partition,
+the check `idf.py build` itself ends with. RAM regions are measured as
+everywhere else; cache windows and fixed reservations are left out.
+
+To run it on every build, after `project()` in the top-level `CMakeLists.txt`:
+
+```cmake
+find_program(FWTRACK fwtrack HINTS "$ENV{IDF_PYTHON_ENV_PATH}/bin" NO_CACHE)
+if(FWTRACK)
+    idf_build_get_property(build_dir BUILD_DIR)
+    add_custom_target(footprint ALL
+        COMMAND ${FWTRACK} --config ${CMAKE_CURRENT_SOURCE_DIR}/fw_tracking.toml
+            --elf ${build_dir}/${CMAKE_PROJECT_NAME}.elf
+            --map ${build_dir}/${CMAKE_PROJECT_NAME}.map
+            --meta ${build_dir}/project_description.json
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        USES_TERMINAL VERBATIM)
+    add_dependencies(footprint gen_project_binary)
+endif()
+```
+
+`pip install` it in the ESP-IDF environment — the shell where `idf.py` works —
+and `idf.py reconfigure`, which is also what picks up installing or removing it
+later. Where it is not installed the step is skipped, so the firmware builds the
+same for everyone. [examples/esp-idf.toml](examples/esp-idf.toml)
+has groups for every chip family.
+
 ## Dimensions
 
 Anything worth filtering by is a tag. Tags become single-choice dashboard

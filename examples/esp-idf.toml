@@ -1,0 +1,43 @@
+# fw_tracking.toml for an ESP-IDF project, beside its top-level CMakeLists.txt.
+#
+# Flash is recorded as `app`: the image against the smallest app partition, the
+# same check idf.py build ends with. The linker's flash regions are cache
+# windows rather than memories and are left out on their own.
+
+project = "my_app"
+
+# For running fwtrack or fwtrack-size by hand; the CMake hook passes its own.
+[analyse]
+elf = "build/my_app.elf"
+map = "build/my_app.map"
+
+# Written by every ESP-IDF build. "target" is the chip, so a project built for
+# several of them gets a filter to pick one.
+[meta]
+file = "build/project_description.json"
+tags = ["target"]
+
+[[group]]
+name = "flash"
+title = "App partition"
+match = ["app"]
+thresholds = [75, 90, 98]
+
+# ESP32-C5, C6, C61, H2 and P4 have one SRAM for code and data: sram_seg.
+# The ESP32, S2, S3, C2 and C3 split it into dram0_0_seg and iram0_0_seg, and on
+# all but the ESP32 those are the same memory -- dram0_0_seg already counts what
+# IRAM took -- so they stay in separate areas rather than being added up.
+[[group]]
+name = "ram"
+title = "SRAM"
+match = ["sram_seg", "dram0_0_seg"]
+
+[[group]]
+name = "iram"
+title = "IRAM"
+match = ["iram0_0_seg", "spm_idram_seg"]
+
+[[group]]
+name = "rtc"
+title = "RTC / LP memory"
+match = ["lp_ram_seg", "rtc_*_seg"]

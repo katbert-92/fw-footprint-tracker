@@ -12,6 +12,7 @@ from pathlib import Path
 
 from tabulate import tabulate
 
+from . import esp_idf
 from .elf_map_parse import ElfParser, MapParser
 from .log import get_logger, setup_logging
 
@@ -134,6 +135,17 @@ def print_sections(sections: list) -> None:
     print(tabulate(table, headers=headers, tablefmt="grid"))
 
 
+def measure(elf: ElfParser, map_info: dict, elf_path: Path) -> dict:
+    """Region usage as recorded: the linker's view, corrected where it misleads."""
+    usage = compute_memory_usage(map_info, elf.get_segments_info())
+
+    build = esp_idf.detect(elf_path)
+    if build:
+        usage = esp_idf.adjust(usage, build)
+
+    return usage
+
+
 def analyse(elf_path: Path, map_path: Path, sections: bool = False) -> dict:
     map_info = MapParser(map_path).get_regions_info()
     if not map_info:
@@ -144,7 +156,7 @@ def analyse(elf_path: Path, map_path: Path, sections: bool = False) -> dict:
     if sections:
         print_sections(section_usage(map_info, elf.get_sections_info()))
 
-    usage = compute_memory_usage(map_info, elf.get_segments_info())
+    usage = measure(elf, map_info, elf_path)
     print_memory_usage(usage)
 
     # Anything the ELF already knows travels with the numbers, so the caller
