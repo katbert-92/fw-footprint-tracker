@@ -15,6 +15,11 @@ from .log import get_logger
 
 logger = get_logger(__name__)
 
+# The attribute column is optional: ld prints nothing after the length of a
+# region declared without one, and requiring it used to drop that region and
+# every region listed after it.
+REGION_RE = re.compile(r"^(\S+)\s+0x([0-9a-fA-F]+)\s+0x([0-9a-fA-F]+)(?:\s+.*)?$")
+
 
 class MapParser:
     def __init__(self, map_file_path: Path) -> None:
@@ -36,13 +41,6 @@ class MapParser:
 
     def get_regions_info(self) -> dict:
         """Physical memory regions: name, origin and length as the linker sees them."""
-        if not self.map_lines:
-            logger.warning("Map data is empty")
-            return {}
-
-        section_re = re.compile(r"^(\S+)\s+(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+)\s+\S+")
-        memory_regions = {}
-
         header_index = None
         for i, line in enumerate(self.map_lines):
             if line.strip().startswith("Name") and "Origin" in line and "Length" in line:
@@ -50,24 +48,22 @@ class MapParser:
                 break
 
         if header_index is None:
-            logger.warning("Memory region section not found in map file")
+            logger.warning(f"No memory configuration in {self.map_file_path}")
             return {}
 
+        memory_regions = {}
         for line in self.map_lines[header_index + 1 :]:
             if line.strip() == "" or line.strip().startswith("*default*"):
                 continue
 
-            match = section_re.match(line)
-            if match:
-                name, origin_str, length_str = match.groups()
-                origin = int(origin_str, 16)
-                length = int(length_str, 16)
-                memory_regions[name] = {"origin": origin, "length": length}
-                logger.debug(f"Parsed region: {name}, Origin: {origin_str}, Length: {length_str}")
-            else:
+            match = REGION_RE.match(line)
+            if not match:
                 break
 
-        logger.info(f"Parsed {len(memory_regions)} memory regions")
+            name, origin, length = match.groups()
+            memory_regions[name] = {"origin": int(origin, 16), "length": int(length, 16)}
+
+        logger.debug(f"Parsed {len(memory_regions)} memory regions")
         return memory_regions
 
 

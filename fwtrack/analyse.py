@@ -136,6 +136,9 @@ def print_sections(sections: list) -> None:
 
 def analyse(elf_path: Path, map_path: Path, sections: bool = False) -> dict:
     map_info = MapParser(map_path).get_regions_info()
+    if not map_info:
+        raise ValueError(f"{map_path} has no memory configuration; is it a GNU ld map?")
+
     elf = ElfParser(elf_path)
 
     if sections:
