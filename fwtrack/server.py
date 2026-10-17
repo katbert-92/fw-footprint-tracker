@@ -98,6 +98,21 @@ class Handler(BaseHTTPRequestHandler):
         self._reply(201, {"build_id": build_id, "regions": len(regions)})
 
 
+def prepare_database() -> None:
+    """The schema, before the first request can need it.
+
+    A failure is logged rather than fatal: the database may still hold a
+    schema the running code can work with, and refusing to start would turn
+    a partial upgrade into a full outage.
+    """
+    try:
+        with db.connect() as conn:
+            db.apply_schema(conn)
+        logger.info("Schema is up to date")
+    except Exception as e:
+        logger.error(f"Could not update the schema: {e}")
+
+
 def main():
     setup_logging()
 
@@ -106,6 +121,8 @@ def main():
     token = (os.getenv(TOKEN_ENV) or "").strip()
     if not token:
         raise SystemExit(f"{TOKEN_ENV} must be set")
+
+    prepare_database()
 
     port = int(os.getenv("FWTRACK_INGEST_PORT", "8099"))
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)

@@ -23,6 +23,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import psycopg
 from dotenv import find_dotenv, load_dotenv
 
 from .. import __version__, db
@@ -403,8 +404,17 @@ def main():
         sys.exit(1)
 
     with db.connect() as conn:
+        # The ingest service does this on every start; done here as well for a
+        # database it does not run against. Not fatal: an account allowed to
+        # read but not to change the schema can still generate dashboards.
+        try:
+            db.apply_schema(conn)
+        except psycopg.Error as e:
+            conn.rollback()
+            logger.warning(f"Could not update the schema: {e}")
+
         if not db.schema_ready(conn):
-            logger.error("Schema is missing; apply deploy/schema.sql first")
+            logger.error("Schema is missing; run fwtrack-init --apply-schema")
             sys.exit(1)
 
         projects = db.list_projects(conn) if args.all else [args.project]

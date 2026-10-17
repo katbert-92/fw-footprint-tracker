@@ -4,6 +4,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+from importlib.resources import files
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -257,6 +258,27 @@ def schema_ready(conn: psycopg.Connection) -> bool:
         return bool(cur.fetchone()[0])
 
 
+def schema_sql() -> str:
+    return files("fwtrack").joinpath("schema.sql").read_text(encoding="utf-8")
+
+
+def apply_schema(conn: psycopg.Connection) -> None:
+    """Bring the schema up to this version.
+
+    Safe on every start: each statement is a no-op when what it creates is
+    already there. A view whose columns changed cannot be replaced in place,
+    so that one case is dropped and created again.
+    """
+    ddl = schema_sql()
+    try:
+        with conn.transaction():
+            conn.execute(ddl)
+    except psycopg.errors.InvalidTableDefinition:
+        logger.info("memory_points changed shape; recreating it")
+        with conn.transaction():
+            conn.execute("DROP VIEW IF EXISTS memory_points;\n" + ddl)
+
+
 def fetch_column(conn: psycopg.Connection, query: str, params: tuple = ()) -> list:
     """Run a query returning a single column and hand back its values."""
     with conn.cursor() as cur:
@@ -473,30 +495,12 @@ def delete_build(conn: psycopg.Connection, build_id: int, dry_run: bool = False)
     return {"id": build_id, "project": project, "commit": commit, "built_at": built_at}
 
 
-# Created on use rather than by a migration: deployments predating these
-# settings would otherwise need a hand-applied ALTER before the next dashboard
-# could be generated, and schema.sql only ever runs on an empty database.
-SETTINGS_TABLE = """
-CREATE TABLE IF NOT EXISTS project_settings (
-    project      TEXT        PRIMARY KEY,
-    variant_tags TEXT[],
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-)
-"""
-SETTINGS_COLUMNS = """
-ALTER TABLE project_settings
-    ADD COLUMN IF NOT EXISTS main_branch TEXT,
-    ADD COLUMN IF NOT EXISTS overview_pins TEXT[]
-"""
-
 SETTINGS = ("variant_tags", "main_branch", "overview_pins")
 
 
 def project_settings(conn: psycopg.Connection, project: str) -> dict:
     """What this project has chosen about how its dashboards are built."""
     with conn.cursor() as cur:
-        cur.execute(SETTINGS_TABLE)
-        cur.execute(SETTINGS_COLUMNS)
         cur.execute(
             f"SELECT {', '.join(SETTINGS)} FROM project_settings WHERE project = %s", (project,)
         )
@@ -519,8 +523,6 @@ def save_project_settings(conn: psycopg.Connection, project: str, **values) -> N
     placeholders = ", ".join(f"%({k})s" for k in values)
     updates = ", ".join(f"{k} = EXCLUDED.{k}" for k in values)
     with conn.cursor() as cur:
-        cur.execute(SETTINGS_TABLE)
-        cur.execute(SETTINGS_COLUMNS)
         cur.execute(
             f"INSERT INTO project_settings (project, {columns}) "
             f"VALUES (%(project)s, {placeholders}) "

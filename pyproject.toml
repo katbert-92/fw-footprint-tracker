@@ -45,6 +45,9 @@ fwtrack-tags = "fwtrack.tags:main"
 [tool.setuptools.packages.find]
 include = ["fwtrack*"]
 
+[tool.setuptools.package-data]
+fwtrack = ["schema.sql"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

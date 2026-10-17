@@ -1,5 +1,11 @@
 -- Firmware memory footprint schema.
 --
+-- Applied by the ingest service each time it starts, and by
+-- `fwtrack-init --apply-schema` on a database of your own. Every statement is
+-- safe to repeat, which is what lets a newer version extend an existing
+-- database without a migration step: add here, never rename, and the change
+-- reaches every deployment on its next restart.
+--
 -- Two tables rather than one flat one: deltas and baseline comparisons are
 -- computed per build, while usage is per region within a build. Anything a
 -- particular project wants to slice by lives in builds.tags, so adding a
@@ -29,6 +35,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS builds_identity
     ON builds (project, commit, built_at, tags);
 CREATE INDEX IF NOT EXISTS builds_tags     ON builds USING GIN (tags);
 CREATE INDEX IF NOT EXISTS builds_timeline ON builds (project, branch, built_at DESC);
+-- The activity panels filter by project and time range alone, which the
+-- timeline index cannot serve with the branch between the two.
+CREATE INDEX IF NOT EXISTS builds_recent   ON builds (project, built_at DESC);
 
 CREATE TABLE IF NOT EXISTS memory_usage (
     build_id   BIGINT NOT NULL REFERENCES builds(id) ON DELETE CASCADE,
@@ -65,19 +74,23 @@ CREATE TABLE IF NOT EXISTS project_settings (
     -- Order of the dashboard's filters, each narrowing the next. NULL means
     -- whatever order the dimensions come out of the database in.
     variant_tags TEXT[],
-    -- The branch a dashboard opens on. Every project has one that matters more
-    -- than the rest, and opening on "all branches" buries it.
-    main_branch  TEXT,
-    -- Dimensions the overview dashboard fixes instead of offering as filters,
-    -- as KEY=VALUE. Most projects always mean one slice -- the trunk branch,
-    -- the production tag, the application rather than the bootloader.
-    overview_pins TEXT[],
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Added after the table first shipped, so spelled as additions.
+--
+-- The branch a dashboard opens on. Every project has one that matters more
+-- than the rest, and opening on "all branches" buries it.
+ALTER TABLE project_settings ADD COLUMN IF NOT EXISTS main_branch TEXT;
+-- Dimensions the overview dashboard fixes instead of offering as filters, as
+-- KEY=VALUE. Most projects always mean one slice -- the trunk branch, the
+-- production tag, the application rather than the bootloader.
+ALTER TABLE project_settings ADD COLUMN IF NOT EXISTS overview_pins TEXT[];
+
 -- Flattens the join out of every dashboard query and keeps derived values in
 -- one place. Percentages are computed on read: storing them would just be a
--- second copy of used/total that can drift.
+-- second copy of used/total that can drift. New columns go at the end, since
+-- CREATE OR REPLACE cannot move the ones already there.
 CREATE OR REPLACE VIEW memory_points AS
 SELECT b.id AS build_id,
        b.project,

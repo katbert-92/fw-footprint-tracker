@@ -481,9 +481,11 @@ UPDATE builds SET tags = tags - 'bsp' WHERE tags ? 'bsp';
 
 ### Schema changes
 
-`deploy/schema.sql` runs once, on an empty data directory. Apply an `ALTER` by
-hand to an existing database and keep the file in step. A view whose columns
-changed needs `DROP VIEW` — `CREATE OR REPLACE` cannot reorder them.
+[fwtrack/schema.sql](fwtrack/schema.sql) is applied by the ingest service every
+time it starts, so an update brings an existing database along on its own. Every
+statement in it is safe to repeat: add to it, never rename, and keep new view
+columns at the end. Against a database of your own, `fwtrack-init --apply-schema`
+does the same.
 
 ### Backups
 
@@ -512,7 +514,7 @@ by hand keeps the old version, and pip will not see the update.
 
 ```bash
 pip install -e ".[dev]" && pre-commit install
-make test
+make test        # FWTRACK_TEST_DSN=postgresql://... runs the database tests too
 ```
 
 The fixtures in [tests/fixtures/cortex-m](tests/fixtures/cortex-m) are real
