@@ -23,5 +23,9 @@ datasources:
       sslmode: disable
       postgresVersion: 1700
       timescaledb: false
+      # Below the account's own limit, so a crowd of viewers cannot take every
+      # connection the database has and lock the ingest service out of it.
+      maxOpenConns: 10
+      maxIdleConns: 5
     secureJsonData:
       password: ${FWTRACK_DB_PASSWORD}

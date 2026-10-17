@@ -31,7 +31,8 @@ def parse_args():
     parser.add_argument(
         "--apply-schema",
         action="store_true",
-        help="Create or update the tables (the bundled ingest service does this itself)",
+        help="Create or update the tables, and Grafana's read-only account when "
+        f"{db.READER_PASSWORD_ENV} is set (the bundled ingest service does this itself)",
     )
 
     return parser.parse_args()
@@ -49,7 +50,7 @@ def check_database(apply_schema: bool) -> bool:
         print(f"{OK} database: connected")
 
         if apply_schema:
-            db.apply_schema(conn)
+            db.apply_schema(conn, os.getenv(db.READER_PASSWORD_ENV) or None)
             print(f"{OK} schema: applied")
         elif not db.schema_ready(conn):
             print(f"{FAIL} schema: tables are missing")
@@ -58,9 +59,24 @@ def check_database(apply_schema: bool) -> bool:
         else:
             print(f"{OK} schema: present")
 
+        report_reader(conn)
         report_contents(conn)
 
     return True
+
+
+def report_reader(conn) -> None:
+    """Whether Grafana has an account of its own that can only read."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (db.READER_ROLE,))
+        present = cur.fetchone() is not None
+
+    if present:
+        print(f"{OK} grafana account: {db.READER_ROLE}, read-only")
+    else:
+        print(f"{WARN}grafana account: {db.READER_ROLE} does not exist")
+        print(f"     Grafana should not connect as the owner: set {db.READER_PASSWORD_ENV}")
+        print("     and run fwtrack-init --apply-schema")
 
 
 def report_contents(conn) -> None:

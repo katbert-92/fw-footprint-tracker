@@ -33,6 +33,7 @@ jobs:
     env:
       POSTGRES_PASSWORD: ci
       GRAFANA_ADMIN_PASSWORD: ci
+      GRAFANA_DB_PASSWORD: ci
       FWTRACK_INGEST_TOKEN: ci
     steps:
       - uses: actions/checkout@v7

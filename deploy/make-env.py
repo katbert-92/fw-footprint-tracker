@@ -47,6 +47,8 @@ def main() -> None:
         "POSTGRES_PORT": lambda: str(free_port(5432)),
         "GRAFANA_ADMIN_PASSWORD": lambda: secrets.token_urlsafe(18),
         "GRAFANA_PORT": lambda: str(free_port(3000)),
+        # Grafana's own account, which can only read: every viewer can send it SQL.
+        "GRAFANA_DB_PASSWORD": lambda: secrets.token_urlsafe(18),
         "FWTRACK_INGEST_TOKEN": lambda: secrets.token_urlsafe(32),
         "INGEST_PORT": lambda: str(free_port(8099)),
     }

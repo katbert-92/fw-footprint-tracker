@@ -408,7 +408,7 @@ def main():
         # database it does not run against. Not fatal: an account allowed to
         # read but not to change the schema can still generate dashboards.
         try:
-            db.apply_schema(conn)
+            db.apply_schema(conn, os.getenv(db.READER_PASSWORD_ENV) or None)
         except psycopg.Error as e:
             conn.rollback()
             logger.warning(f"Could not update the schema: {e}")

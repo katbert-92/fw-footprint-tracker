@@ -7,12 +7,24 @@ import pytest
 
 from fwtrack import db
 
+READER = "fwtrack_test_reader"
+
 
 @pytest.fixture
 def conn(dsn):
     with psycopg.connect(dsn) as conn:
         db.apply_schema(conn)
         yield conn
+
+
+@pytest.fixture
+def reader(dsn):
+    with psycopg.connect(dsn) as conn:
+        db.apply_schema(conn, "reader-pw", READER)
+    yield psycopg.conninfo.make_conninfo(dsn, user=READER, password="reader-pw")
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        conn.execute(f"DROP OWNED BY {READER}")
+        conn.execute(f"DROP ROLE {READER}")
 
 
 def build(**fields):
@@ -50,6 +62,18 @@ def test_a_view_of_an_older_shape_is_replaced(conn):
 
     columns = conn.execute("SELECT * FROM memory_points LIMIT 0").description
     assert [c.name for c in columns][-1] == "pcnt"
+
+
+def test_reader_can_read_and_nothing_else(conn, reader):
+    db.write_build(conn, build(), regions("FLASH"))
+
+    with psycopg.connect(reader) as ro:
+        assert ro.execute("SELECT count(*) FROM memory_points").fetchone()[0] == 1
+        assert ro.execute("SHOW statement_timeout").fetchone()[0] == "30s"
+        for statement in ("DELETE FROM builds", "CREATE TABLE pwned (x int)"):
+            with pytest.raises(psycopg.Error):
+                ro.execute(statement)
+            ro.rollback()
 
 
 def test_renaming_a_value_cannot_collide_two_builds(conn):

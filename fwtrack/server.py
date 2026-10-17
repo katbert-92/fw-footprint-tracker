@@ -99,7 +99,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def prepare_database() -> None:
-    """The schema, before the first request can need it.
+    """Schema and reader account, before the first request can need them.
 
     A failure is logged rather than fatal: the database may still hold a
     schema the running code can work with, and refusing to start would turn
@@ -107,7 +107,7 @@ def prepare_database() -> None:
     """
     try:
         with db.connect() as conn:
-            db.apply_schema(conn)
+            db.apply_schema(conn, (os.getenv(db.READER_PASSWORD_ENV) or "").strip() or None)
         logger.info("Schema is up to date")
     except Exception as e:
         logger.error(f"Could not update the schema: {e}")

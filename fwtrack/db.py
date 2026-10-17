@@ -7,6 +7,7 @@ import urllib.request
 from importlib.resources import files
 
 import psycopg
+from psycopg import sql
 from psycopg.types.json import Jsonb
 
 from . import __version__
@@ -18,6 +19,14 @@ DSN_ENV = "FWTRACK_DSN"
 URL_ENV = "FWTRACK_URL"
 TOKEN_ENV = "FWTRACK_INGEST_TOKEN"
 USER_AGENT = f"fw-footprint-tracker/{__version__}"
+
+# What Grafana connects as. Every Grafana viewer can send the datasource any
+# SQL through /api/ds/query -- anonymous ones included -- so the account it
+# uses must not be able to do more than read, and not for long.
+READER_ROLE = "fwtrack_grafana"
+READER_PASSWORD_ENV = "FWTRACK_GRAFANA_DB_PASSWORD"
+READER_LIMITS = {"statement_timeout": "30s", "default_transaction_read_only": "on"}
+READER_CONNECTIONS = 20
 
 INSERT_BUILD = """
 INSERT INTO builds (project, built_at, commit, branch, version, origin, dirty,
@@ -262,8 +271,10 @@ def schema_sql() -> str:
     return files("fwtrack").joinpath("schema.sql").read_text(encoding="utf-8")
 
 
-def apply_schema(conn: psycopg.Connection) -> None:
-    """Bring the schema up to this version.
+def apply_schema(
+    conn: psycopg.Connection, reader_password: str | None = None, reader: str = READER_ROLE
+) -> None:
+    """Bring the schema up to this version, and the reader account with it.
 
     Safe on every start: each statement is a no-op when what it creates is
     already there. A view whose columns changed cannot be replaced in place,
@@ -277,6 +288,48 @@ def apply_schema(conn: psycopg.Connection) -> None:
         logger.info("memory_points changed shape; recreating it")
         with conn.transaction():
             conn.execute("DROP VIEW IF EXISTS memory_points;\n" + ddl)
+
+    if reader_password:
+        # Apart from the schema, so that a failure there cannot leave Grafana
+        # locked out of a database it could read until now.
+        with conn.transaction():
+            grant_reader(conn, reader_password, reader)
+
+
+def grant_reader(conn: psycopg.Connection, password: str, name: str = READER_ROLE) -> None:
+    """Create or update the read-only account Grafana connects as.
+
+    Roles belong to the server rather than to one database, which is why the
+    name can be changed: a test must not reset the password of the real one.
+    """
+    role = sql.Identifier(name)
+    statements = [
+        sql.SQL(
+            "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = {name}) "
+            "THEN CREATE ROLE {role} LOGIN; END IF; END $$"
+        ).format(name=sql.Literal(name), role=role),
+        # Set on every start, so a password changed in .env takes effect.
+        sql.SQL(
+            "ALTER ROLE {} WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "CONNECTION LIMIT {} PASSWORD {}"
+        ).format(role, sql.Literal(READER_CONNECTIONS), sql.Literal(password)),
+        *(
+            sql.SQL("ALTER ROLE {} SET {} = {}").format(
+                role, sql.Identifier(setting), sql.Literal(value)
+            )
+            for setting, value in READER_LIMITS.items()
+        ),
+        sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
+            sql.Identifier(conn.info.dbname), role
+        ),
+        sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(role),
+        sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA public TO {}").format(role),
+        sql.SQL("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {}").format(
+            role
+        ),
+    ]
+    for statement in statements:
+        conn.execute(statement)
 
 
 def fetch_column(conn: psycopg.Connection, query: str, params: tuple = ()) -> list:
