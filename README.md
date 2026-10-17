@@ -331,22 +331,12 @@ feature set that only the bootloader is built with is no longer offered on a
 dashboard pinned to the application, where choosing it could only ever show
 No data.
 
-Because it is remembered, a pin set once is invisible afterwards — it lives in
-the database rather than in this repository, and nothing on the dashboard says
-it is there. What a project is set to:
+Passing nothing keeps what is stored, which is what makes regeneration safe.
+What is stored is printed on every generation; to forget it:
 
-```sql
-SELECT * FROM project_settings WHERE project = 'blinky';
+```bash
+./fwtrack.sh dash --project blinky --reset overview_pins    # or main_branch, variant_tags, all
 ```
-
-Passing nothing keeps what is stored, which is what makes regeneration safe, so
-there is no flag that unpins. Clearing is a deliberate edit:
-
-```sql
-UPDATE project_settings SET overview_pins = NULL WHERE project = 'blinky';
-```
-
-Then regenerate.
 
 A per-build log is deliberately absent: a project that builds a dozen variants
 per commit turns one build into a dozen rows of the same hash.

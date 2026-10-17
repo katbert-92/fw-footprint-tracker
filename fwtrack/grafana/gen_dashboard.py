@@ -82,6 +82,14 @@ def parse_args():
         "Use for a dimension a project has stopped recording, or one that turned out to "
         "duplicate another",
     )
+    parser.add_argument(
+        "--reset",
+        action="append",
+        default=[],
+        choices=[*db.SETTINGS, "all"],
+        help="Forget a remembered setting before generating, so its default applies again; "
+        "repeatable",
+    )
 
     return parser.parse_args()
 
@@ -326,6 +334,11 @@ def generate(conn, project: str, args) -> None:
             "Rename with: fwtrack-tags rename --project ... OLD NEW"
         )
         discovered = [t for t in discovered if t not in unusable]
+
+    resets = list(db.SETTINGS) if "all" in args.reset else args.reset
+    if resets:
+        db.reset_project_settings(conn, project, resets)
+        logger.info(f"{project}: reset {', '.join(resets)}")
 
     # Anything given here replaces what was stored; otherwise the stored value
     # stands, so regenerating never silently reshuffles a dashboard.

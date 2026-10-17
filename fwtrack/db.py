@@ -596,5 +596,20 @@ def save_project_settings(conn: psycopg.Connection, project: str, **values) -> N
     conn.commit()
 
 
+def reset_project_settings(conn: psycopg.Connection, project: str, names: list) -> None:
+    """Forget the settings named, so the defaults apply again."""
+    names = [n for n in names if n in SETTINGS]
+    if not names:
+        return
+
+    with conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE project_settings SET {', '.join(f'{n} = NULL' for n in names)}, "
+            "updated_at = now() WHERE project = %s",
+            (project,),
+        )
+    conn.commit()
+
+
 def list_projects(conn: psycopg.Connection) -> list:
     return fetch_column(conn, "SELECT DISTINCT project FROM builds ORDER BY 1")

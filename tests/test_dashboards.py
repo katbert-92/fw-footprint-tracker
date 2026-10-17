@@ -1,4 +1,6 @@
+import json
 import re
+from argparse import Namespace
 
 from fwtrack.grafana import gen_dashboard, queries
 
@@ -55,3 +57,40 @@ def test_a_project_without_dimensions_has_no_dimension_filters():
 
 def test_deltas_compare_builds_of_the_same_branch():
     assert "PARTITION BY branch, area" in queries.delta_per_build(["cfg"], {}, ["flash"])
+
+
+def test_generate_writes_both_dashboards(tmp_path, monkeypatch):
+    class Stub:
+        pass
+
+    stored = {}
+    db = gen_dashboard.db
+    monkeypatch.setattr(db, "discover_variant_tags", lambda c, p: ["cfg", "bad-name"])
+    monkeypatch.setattr(db, "discover_areas", lambda c, p: ["flash"])
+    monkeypatch.setattr(db, "region_limits", lambda c, p: {"FLASH": (4096, [80, 90])})
+    monkeypatch.setattr(db, "save_project_settings", lambda c, p, **v: stored.update(v))
+    monkeypatch.setattr(db, "reset_project_settings", lambda c, p, names: None)
+    monkeypatch.setattr(db, "project_settings", lambda c, p: {})
+
+    args = Namespace(
+        out_dir=tmp_path,
+        variant_tags="",
+        overview_pin="",
+        main_branch="",
+        exclude_tags="",
+        datasource_uid="fwtrack-postgres",
+        push=False,
+        folder_uid=None,
+        reset=[],
+    )
+    gen_dashboard.generate(Stub(), "blinky", args)
+
+    written = sorted(p.name for p in (tmp_path / "blinky").iterdir())
+    assert written == ["fwtrack-blinky-activity.json", "fwtrack-blinky.json"]
+    variables = [
+        v["name"]
+        for v in json.loads((tmp_path / "blinky" / "fwtrack-blinky.json").read_text())[
+            "templating"
+        ]["list"]
+    ]
+    assert "cfg" in variables and "bad-name" not in variables

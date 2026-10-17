@@ -94,3 +94,10 @@ def test_renaming_a_value_cannot_collide_two_builds(conn):
 
     assert db.rename_value(conn, "blinky", "cfg", "52362d", "NB", dry_run=True) == 1
     assert {v["value"] for v in db.tag_values(conn, "blinky", "cfg")} == {"52362d", "NB_B100"}
+
+
+def test_settings_can_be_reset(conn):
+    db.save_project_settings(conn, "blinky", main_branch="dev", overview_pins=["tag=prd"])
+    db.reset_project_settings(conn, "blinky", ["overview_pins"])
+
+    assert db.project_settings(conn, "blinky") == {"main_branch": "dev"}
