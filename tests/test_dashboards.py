@@ -51,3 +51,7 @@ def test_a_project_without_dimensions_has_no_dimension_filters():
     names = [v["name"] for v in regions["templating"]["list"]]
     assert names == ["datasource", "project", "branch", "origin", "author", "area", "region"]
     assert [v["name"] for v in overview["templating"]["list"]] == ["datasource", "project"]
+
+
+def test_deltas_compare_builds_of_the_same_branch():
+    assert "PARTITION BY branch, area" in queries.delta_per_build(["cfg"], {}, ["flash"])

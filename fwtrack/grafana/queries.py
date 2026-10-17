@@ -353,7 +353,7 @@ def _build_deltas(variant_tags: list, pins: dict | None = None) -> str:
 ),
 deltas AS (
   SELECT *,
-         used - LAG(used) OVER (PARTITION BY area ORDER BY built_at, build_id) AS delta
+         used - LAG(used) OVER (PARTITION BY branch, area ORDER BY built_at, build_id) AS delta
   FROM per_build
 )"""
 
