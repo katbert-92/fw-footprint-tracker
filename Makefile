@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 COMPOSE := docker compose
 
-.PHONY: up update down logs ps env token restart release
+.PHONY: up update down logs ps env token restart test lint release
 
 ## Start everything, generating secrets on first run
 up: env
@@ -19,6 +19,12 @@ up: env
 update:
 	git pull
 	@$(MAKE) --no-print-directory up
+
+test:
+	python -m pytest -q
+
+lint:
+	ruff check . && ruff format --check .
 
 ## Cut and publish a release: make release VERSION=0.1.1
 ## Tags live on main, so that a tag never points at work in progress.

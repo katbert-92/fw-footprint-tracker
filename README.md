@@ -508,6 +508,16 @@ Cutting a release: merge `dev` into `main`, then `make release VERSION=0.1.1`.
 It sets the version in `pyproject.toml`, commits, tags and pushes. A tag made
 by hand keeps the old version, and pip will not see the update.
 
+## Development
+
+```bash
+pip install -e ".[dev]" && pre-commit install
+make test
+```
+
+The fixtures in [tests/fixtures/cortex-m](tests/fixtures/cortex-m) are real
+Arm GNU builds; `build.sh` there regenerates them.
+
 ## Requirements
 
 Python 3.11+, a GNU toolchain that emits a linker map, Docker for the server.
