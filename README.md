@@ -2,7 +2,7 @@
 
 Track embedded firmware memory footprint across builds, and see per-branch
 trends in Grafana. Answers *where did the memory go?* before the linker does it
-for you.
+for you — and, down to the function, *which change took it*.
 
 ```text
    your build                      your server
@@ -15,7 +15,8 @@ for you.
 
 Region sizes come from the MAP file, the layout from ELF program headers, and
 usage is measured the way the linker measures it — the same numbers your build
-already prints.
+already prints. On ESP-IDF, where the linker's regions do not describe the chip,
+it is measured the way the ESP-IDF build checks its image instead.
 
 ## Server
 
@@ -24,25 +25,80 @@ git clone https://github.com/katbert-92/fw-footprint-tracker
 cd fw-footprint-tracker && ./fwtrack.sh up
 ```
 
-Generates secrets, picks free ports, prints the endpoint and token. Later:
-`./fwtrack.sh update` — pulls, restarts, and regenerates every project's
-dashboards, which is what makes it different from `up`. `.env` is gitignored and
-survives. It follows whatever ref is checked out — see [Versions](#versions).
+Needs Docker, git and python3, and says how to install whichever is missing.
+Generates secrets, picks free ports, prints the addresses and the token. `.env`
+holds them; it is gitignored and survives updates.
 
-Regenerating replaces dashboards edited in Grafana, so `up` never does it on its
-own: restarting the stack is not a reason to lose someone's layout.
+| | |
+| --- | --- |
+| `./fwtrack.sh up` | start, or restart after a change to `.env` |
+| `./fwtrack.sh update` | newer version, restart, regenerate every dashboard |
+| `./fwtrack.sh info` | addresses, admin password, token |
+| `./fwtrack.sh https DOMAIN` | serve it over HTTPS on that domain |
+| `./fwtrack.sh backup` | dump the database into `backups/` |
+| `./fwtrack.sh restore FILE` | replace the database with a dump |
+| `./fwtrack.sh check` | services, schema, data |
+| `./fwtrack.sh help` | the rest |
 
-`./fwtrack.sh` is the only thing to run on the server; `./fwtrack.sh help` lists
-what it does.
+`update` regenerates dashboards, which replaces any edited in Grafana; `up`
+never does, since restarting the stack is not a reason to lose someone's
+layout. The script changes to its own directory first, so
+`/opt/fwtrack/fwtrack.sh backup` works from anywhere.
 
-Ports bind to `127.0.0.1` for a host with a reverse proxy. `BIND_ADDRESS=0.0.0.0`
-reaches them directly instead.
+### Reaching it
+
+Every port is bound to `127.0.0.1`: reachable from the server itself and from
+nowhere else. Builds elsewhere need an address, and the ingest token should not
+cross a network in clear text, so something has to accept HTTPS and hand
+requests on — `/ingest/` to the ingest service, the rest to Grafana. That is a
+reverse proxy: nginx, Caddy, a Cloudflare tunnel. Three ways to have one.
+
+**No web server on the machine yet.** One command, given a domain whose DNS
+points at it:
+
+```bash
+./fwtrack.sh https fwtrack.example.com
+```
+
+Starts Caddy in front of both, with a Let's Encrypt certificate it renews on its
+own. Needs ports 80 and 443 free; `./fwtrack.sh https off` undoes it.
+
+No domain at all: `./fwtrack.sh https 203.0.113.5.sslip.io`, with the server's
+own IP. [sslip.io](https://sslip.io) resolves such a name to the IP inside it,
+which is enough for a certificate.
+
+**A web server already there.** Point it at the two loopback ports. For nginx:
+
+```nginx
+location /ingest/ { proxy_pass http://127.0.0.1:8099; }
+location /        { proxy_pass http://127.0.0.1:3000; proxy_set_header Host $host; }
+```
+
+and set `GRAFANA_ROOT_URL=https://your.domain/` in `.env`, then `./fwtrack.sh up`,
+so the links Grafana builds point at the right place. The ports are the ones
+`./fwtrack.sh info` prints.
+
+**A trusted network.** `BIND_ADDRESS=0.0.0.0` in `.env` reaches the ports
+directly, without TLS.
 
 | Container | |
 | --- | --- |
 | `postgres` | the data; stays on loopback |
-| `ingest` | one authenticated POST, so runners never hold database credentials |
+| `ingest` | one authenticated POST, so runners never hold database credentials; brings the schema up to date on every start |
 | `grafana` | dashboards, generated rather than drawn |
+| `caddy` | HTTPS, only after `./fwtrack.sh https` |
+
+### Who can do what
+
+Grafana opens without a login: anyone who can reach it can look, nobody can
+edit. Looking is broader than it sounds — every Grafana viewer can send the
+datasource arbitrary SQL — so Grafana connects as `fwtrack_grafana`, an account
+that can only read, for at most 30 seconds per query. `GRAFANA_ANONYMOUS=false`
+in `.env` puts a login in front, for dashboards that are not for everyone who
+can reach the server.
+
+The ingest token writes builds and nothing else. Deleting and renaming need
+server access: [Maintenance](#maintenance).
 
 ### API
 
@@ -52,11 +108,12 @@ Python package can do exactly that.
 
 ```bash
 curl https://fwtrack.example.com/ingest/health
-# {"status": "ok", "version": "0.1.0"}
+# {"status": "ok", "version": "0.5.0"}
 ```
 
-No token, so it can be a health check. The version is the one the server is
-actually running, which is otherwise an ssh session away.
+No token, so it can be a health check, and a 503 when the database is
+unreachable. The version is the one the server is actually running, which is
+otherwise an ssh session away.
 
 ```bash
 curl -X POST https://fwtrack.example.com/ingest/builds \
@@ -88,7 +145,8 @@ curl -X POST https://fwtrack.example.com/ingest/builds \
 and `dirty`. `regions` requires `region`, `area` and `used`. Everything else
 above is optional: a region without `total` records a size that is not known
 rather than a wrong one, and `thresholds` sets the warning levels for that
-region from then on.
+region from then on. Tag names are letters, digits and underscores — each one
+becomes a Grafana variable — and values are stored as text.
 
 Writes upsert on `(project, commit, built_at, tags)`, so re-running a pipeline
 on the same commit refreshes the numbers instead of adding a second point.
@@ -96,8 +154,9 @@ on the same commit refreshes the numbers instead of adding a second point.
 | | |
 | --- | --- |
 | 201 | recorded |
-| 400 | a required field is missing, or `built_at` is not a date |
+| 400 | a field is missing or of the wrong kind, `built_at` is not a date, or a tag name is not usable |
 | 401 | wrong token, or none |
+| 411 | no `Content-Length` |
 | 413 | body over 1 MB |
 | 500 | the write failed; the container log has the reason |
 
@@ -109,7 +168,7 @@ access.
 ## Project
 
 ```bash
-pip install git+https://github.com/katbert-92/fw-footprint-tracker@v0.1.0
+pip install git+https://github.com/katbert-92/fw-footprint-tracker@v0.5.0
 ```
 
 `fw_tracking.toml` beside the build system:
@@ -132,9 +191,11 @@ match = ["SRAM*", "RAM*"]
 ```
 
 Then `fwtrack` after each build. Without `FWTRACK_ENABLE` it only prints the
-table, so a plain local build stays offline.
+table, so a plain local build stays offline. `fwtrack --check` exits with
+status 2 when a region is past the highest of its thresholds — after recording
+the build, so the point is on the chart either way.
 
-Once there is data: `fwtrack-dash --project blinky`.
+Once there is data: `./fwtrack.sh dash --project blinky` on the server.
 
 ### Settings
 
@@ -314,8 +375,8 @@ history recorded before a tag existed stays visible.
 
 ## Dashboards
 
-`fwtrack-dash` asks the database which dimensions, areas and regions a project
-has. Nothing about a project is hardcoded.
+`./fwtrack.sh dash --project blinky` asks the database which dimensions, areas
+and regions a project has. Nothing about a project is hardcoded.
 
 One dashboard per project, in its own folder — folders are where permissions are
 granted, and a dashboard variable is a filter, not a boundary. Generated
@@ -327,26 +388,14 @@ private copy; port anything worth keeping back into the generator.
 | Region usage | how full each region is at its last build, against its thresholds |
 | Usage over time | bytes per region and branch, with a capacity line |
 | By build | bytes per region per build |
-| Delta vs previous | change against the previous build **of the same branch and variant** |
 
 The gauges are the front page; the history sits in a collapsed row below them,
 because the first question is "is anything running out", and only the answer
 "yes" leads to the second.
 
-Deltas are computed over the whole history and filtered by the dashboard's time
-range afterwards, so a build still shows what it cost when the build before it
-falls outside the window — which is most of them, since a branch and variant
-usually build once a day.
-
-Every time panel is marked where the compiler changed — the answer to "all
-regions grew at once, did we change toolchain?" belongs on the chart the jump is
-seen on, not in a table. The mark appears only where the value actually changed,
-so a toolchain that holds for a year draws one line rather than a thousand.
-
-The build list carries an **Uncommitted** column instead: that one is a property
-of a single measurement, not a moment in time. A build made with uncommitted
-changes does not correspond to any commit, and its point is placed at the build
-time rather than the commit time so that local iterations stay separate.
+A build made with uncommitted changes does not correspond to any commit: its
+hash carries a star, and its point is placed at the build time rather than the
+commit time so that local iterations stay separate.
 
 Variable lists follow the dashboard time range, so a project with thousands of
 dead branches stays usable.
@@ -368,6 +417,12 @@ rather than the detail of one region.
 | Who builds / branches / origins | where the builds come from |
 | How full, per area | every measurement, percent left axis, bytes right |
 | Tightest regions | what to worry about, worst first |
+
+Deltas compare a build with the previous build **of the same branch and
+variant**, and are computed over the whole history before the time range is
+applied, so a build still shows what it cost when the build before it falls
+outside the window — which is most of them, since a branch and variant usually
+build once a day.
 
 Counting panels count commits as well as builds. One push fans out into a build
 per variant, so a project with twenty-eight variants shows twenty-eight builds
@@ -469,14 +524,15 @@ memory dashboard is opened.
 | | |
 | --- | --- |
 | `fwtrack` | analyse and record one build |
+| `fwtrack-size` | break a build down by object and symbol, or compare two |
 | `fwtrack-analyse` | analyse only, write JSON |
 | `fwtrack-push` | record an analysis produced earlier |
-| `fwtrack-dash` | generate a project dashboard |
+| `fwtrack-dash` | generate a project's dashboards |
 | `fwtrack-init` | check services, schema and data |
 | `fwtrack-server` | the ingest endpoint |
 | `fwtrack-tags` | edit dimensions and builds already recorded |
 
-The first three run in the project being measured. The rest need the database,
+The first four run in the project being measured. The rest need the database,
 so on a server they are reached through `./fwtrack.sh`, which runs them in the
 container that already holds its credentials.
 
@@ -484,10 +540,6 @@ container that already holds its credentials.
 
 Projects change what they measure: a dimension turns out to duplicate another,
 or to have been named badly, or a build gets recorded that should not have been.
-
-The script changes to its own directory before doing anything, so it can be
-called by its full path — `/opt/fwtrack/fwtrack.sh backup` — from anywhere, and
-`cd` is never needed:
 
 ```bash
 ./fwtrack.sh backup                                   # first, always
@@ -519,47 +571,46 @@ Every edit is scoped to one project. An edit that would leave two builds
 identical — same commit, same time, same dimensions — is refused rather than
 guessed at; delete the redundant build first.
 
+To stop filtering by a dimension without touching history:
+`./fwtrack.sh dash --project blinky --exclude-tags bsp`.
+
 `./fwtrack.sh check --project blinky` when a dashboard looks empty: it separates
 "nothing was recorded" from "the filters exclude everything", which look
 identical from the dashboard.
 
+### Backups
+
+```bash
+./fwtrack.sh backup                                      # backups/fwtrack-2026-10-17-020000.sql.gz
+./fwtrack.sh restore backups/fwtrack-2026-10-17-020000.sql.gz
+```
+
+`restore` replaces everything in one transaction: it either completes or leaves
+the database as it was. Dumps made by older versions restore as well, which is
+also how a tracker moves to another server — backup there, copy the file,
+restore here.
+
 ### Data model
 
 ```text
-builds          per build: project, time, commit, branch, author, version,
-                origin, dirty, toolchain, dimensions in a JSONB column
-memory_usage    per region of a build: used, total (null if unknown)
-region_budgets  warning levels, per project and region
-memory_points   a view joining them, with free and percentage computed
+builds            per build: project, time, commit, branch, author, version,
+                  origin, dirty, toolchain, dimensions in a JSONB column
+memory_usage      per region of a build: used, total (null if unknown)
+region_budgets    warning levels, per project and region
+memory_points     a view joining them, with free and percentage computed
 project_settings  per project: dimension order, main branch, overview pins
 ```
 
 Dimensions live in JSONB, so adding one needs no migration. Writes upsert on
 `(project, commit, built_at, tags)`: re-running a pipeline on the same commit
-refreshes the numbers. On a dirty tree the build time is used instead of the
-commit time, so local iterations stay separate.
+refreshes the numbers, regions included. On a dirty tree the build time is used
+instead of the commit time, so local iterations stay separate.
 
 `memory_points` is the stable surface for custom panels:
 
 ```sql
 SELECT built_at, region, used, pcnt FROM memory_points
 WHERE project = 'blinky' AND area = 'flash' ORDER BY built_at DESC;
-```
-
-### Changing the set of dimensions
-
-Projects change what they measure. To stop filtering by one without touching
-history:
-
-```bash
-fwtrack-dash --project blinky --exclude-tags bsp
-```
-
-To remove it from the data — currently SQL, an administrator's job rather than
-CI's:
-
-```sql
-UPDATE builds SET tags = tags - 'bsp' WHERE tags ? 'bsp';
 ```
 
 ### Schema changes
@@ -570,12 +621,6 @@ statement in it is safe to repeat: add to it, never rename, and keep new view
 columns at the end. Against a database of your own, `fwtrack-init --apply-schema`
 does the same.
 
-### Backups
-
-```bash
-./fwtrack.sh backup
-```
-
 ## Versions
 
 Releases are tagged on `main`; `dev` is where work lands. Pin both sides to the
@@ -583,13 +628,14 @@ same tag: a branch moves under you, a tag does not.
 
 | | |
 | --- | --- |
-| project | `pip install git+https://github.com/katbert-92/fw-footprint-tracker@v0.1.0` |
-| server | `git checkout v0.1.0 && ./fwtrack.sh up` |
+| project | `pip install git+https://github.com/katbert-92/fw-footprint-tracker@v0.5.0` |
+| server | `./fwtrack.sh update v0.5.0` |
 
-`curl http://<host>:8099/ingest/health` reports the version a server is running,
-which is the one thing ssh would otherwise be needed for.
+On a server checked out at a release, `./fwtrack.sh update` moves to the newest
+one; on a branch, it pulls. `curl https://<host>/ingest/health` reports the
+version a server is running.
 
-Cutting a release: merge `dev` into `main`, then `./scripts/release.sh 0.1.1`.
+Cutting a release: merge `dev` into `main`, then `./scripts/release.sh 0.5.1`.
 It sets the version in `pyproject.toml`, commits, tags and pushes. A tag made
 by hand keeps the old version, and pip will not see the update.
 
