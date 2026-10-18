@@ -5,6 +5,9 @@
 
 FROM python:3.13-slim
 
+# Log lines reach `docker compose logs` as they are written, not in blocks.
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY fwtrack ./fwtrack

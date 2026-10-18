@@ -22,13 +22,27 @@ NO_VALUE = "(none)"
 
 
 def _dimension(tag: str) -> str:
-    return f"COALESCE(tags->>'{tag}', '{NO_VALUE}')"
+    return f"COALESCE(tags->>{_literal(tag)}, '{NO_VALUE}')"
+
+
+# Grafana pastes a variable into the SQL as it is unless told otherwise, and
+# the value comes from the page URL: :sqlstring quotes and escapes it, so a
+# value with a quote in it is a value, not more SQL.
+PROJECT = "${project:sqlstring}"
+AREA = "${area:sqlstring}"
+
+
+def _var(name: str) -> str:
+    return f"${{{name}:sqlstring}}"
 
 
 # Seconds are not decoration: local rebuilds of a dirty tree share a commit and
 # land within the same minute, and without them every bar collapses into one
 # category.
-BUILD_LABEL = "LEFT(commit, 7) || CASE WHEN dirty THEN '*' ELSE '' END || ' · ' || TO_CHAR(built_at, 'MM/DD HH24:MI:SS')"
+BUILD_LABEL = (
+    "LEFT(commit, 7) || CASE WHEN dirty THEN '*' ELSE '' END"
+    " || ' · ' || TO_CHAR(built_at, 'MM/DD HH24:MI:SS')"
+)
 
 
 def _filters(variant_tags: list, time_filter: bool = True) -> str:
@@ -40,8 +54,8 @@ def _filters(variant_tags: list, time_filter: bool = True) -> str:
     time_filter is dropped by the panels that look backwards: a window has to
     contain the build being compared, not the one it is compared against.
     """
-    lines = ["  WHERE project = '$project'"]
-    lines += [f"    AND {_dimension(tag)} = '${tag}'" for tag in variant_tags]
+    lines = [f"  WHERE project = {PROJECT}"]
+    lines += [f"    AND {_dimension(tag)} = {_var(tag)}" for tag in variant_tags]
     lines += [
         "    AND branch IN (${branch:sqlstring})",
         "    AND origin IN (${origin:sqlstring})",
@@ -68,7 +82,7 @@ def trend(variant_tags: list) -> str:
        region || ' · ' || branch AS metric
 FROM memory_points
 {_filters(variant_tags)}
-    AND area = '$area'
+    AND area = {AREA}
 ORDER BY 1"""
 
 
@@ -84,7 +98,7 @@ def area_capacity(variant_tags: list) -> str:
        'Capacity' AS metric
 FROM memory_points
 {_filters(variant_tags)}
-    AND area = '$area'
+    AND area = {AREA}
 GROUP BY built_at
 ORDER BY 1"""
 
@@ -105,7 +119,7 @@ FROM (
          region || ' · ' || branch AS metric
   FROM memory_points
 {_filters(variant_tags)}
-    AND area = '$area'
+    AND area = {AREA}
   ORDER BY region, built_at DESC
 ) latest
 ORDER BY 1"""
@@ -117,14 +131,14 @@ def by_build(variant_tags: list) -> str:
     Long format, one row per region: a wide one would have to name its columns
     in SQL, and since the panel is repeated across areas with a single query
     that means every region of the project appears on every area's chart. The
-panel pivots it back with a transformation.
+    panel pivots it back with a transformation.
     """
     return f"""SELECT {BUILD_LABEL} AS build,
        region,
        used
 FROM memory_points
 {_filters(variant_tags)}
-    AND area = '$area'
+    AND area = {AREA}
 ORDER BY built_at"""
 
 
@@ -134,10 +148,11 @@ def by_build_axis_min(variant_tags: list) -> str:
     Dropped below the smallest build by the spread (at least 1%), so the
     smallest bar stays visible instead of vanishing into the axis.
     """
-    return f"""SELECT GREATEST(0, MIN(used) - GREATEST(MAX(used) - MIN(used), MIN(used) * 0.01)) AS min
+    return f"""SELECT GREATEST(0, MIN(used) - GREATEST(MAX(used) - MIN(used),
+                                       MIN(used) * 0.01)) AS min
 FROM memory_points
 {_filters(variant_tags)}
-    AND area = '$area'"""
+    AND area = {AREA}"""
 
 
 def variable_values(tag: str, depends_on: list, pins: dict | None = None) -> str:
@@ -152,8 +167,8 @@ def variable_values(tag: str, depends_on: list, pins: dict | None = None) -> str
     it is still part of the combination, and a value that exists only outside
     the pin would otherwise be offered and show nothing.
     """
-    conditions = ["project = '$project'", "$__timeFilter(built_at)"]
-    conditions += [f"{_dimension(name)} = '${name}'" for name in depends_on]
+    conditions = [f"project = {PROJECT}", "$__timeFilter(built_at)"]
+    conditions += [f"{_dimension(name)} = {_var(name)}" for name in depends_on]
     conditions += [
         f"{column if column in PINNABLE_COLUMNS else _dimension(column)} = {_literal(value)}"
         for column, value in (pins or {}).items()
@@ -172,7 +187,7 @@ def author_values() -> str:
     return (
         "SELECT DISTINCT COALESCE(author, '(none)') AS value\n"
         "FROM builds\n"
-        "WHERE project = '$project'\n"
+        f"WHERE project = {PROJECT}\n"
         "  AND $__timeFilter(built_at)\n"
         "ORDER BY 1"
     )
@@ -189,7 +204,7 @@ def simple_values(column: str, table: str = "memory_points") -> str:
     return (
         f"SELECT DISTINCT {column} AS value\n"
         f"FROM {table}\n"
-        "WHERE project = '$project'\n"
+        f"WHERE project = {PROJECT}\n"
         "  AND $__timeFilter(built_at)\n"
         "ORDER BY 1"
     )
@@ -214,7 +229,7 @@ def simple_values(column: str, table: str = "memory_points") -> str:
 # No region filter in either: this dashboard has no region variable, and every
 # panel here is about whole areas.
 
-FLOW_FILTER = "  WHERE project = '$project'\n    AND $__timeFilter(built_at)"
+FLOW_FILTER = f"  WHERE project = {PROJECT}\n    AND $__timeFilter(built_at)"
 
 # Columns of `builds` that can be pinned like a dimension can.
 PINNABLE_COLUMNS = ("branch", "origin", "version", "toolchain")
@@ -223,6 +238,11 @@ PINNABLE_COLUMNS = ("branch", "origin", "version", "toolchain")
 def _literal(value: str) -> str:
     """A string safe to paste into generated SQL."""
     return "'" + value.replace("'", "''") + "'"
+
+
+def _ident(name: str) -> str:
+    """A column alias safe to paste into generated SQL."""
+    return '"' + name.replace('"', '""') + '"'
 
 
 def _memory_filter(variant_tags: list, pins: dict | None = None, time_filter: bool = True) -> str:
@@ -238,9 +258,9 @@ def _memory_filter(variant_tags: list, pins: dict | None = None, time_filter: bo
     dimension it does want to flip between.
     """
     pins = pins or {}
-    lines = ["  WHERE project = '$project'"]
+    lines = [f"  WHERE project = {PROJECT}"]
     for tag in variant_tags:
-        value = f"{_literal(pins[tag])}" if tag in pins else f"'${tag}'"
+        value = _literal(pins[tag]) if tag in pins else _var(tag)
         lines.append(f"    AND {_dimension(tag)} = {value}")
 
     lines += [
@@ -333,7 +353,7 @@ def _build_deltas(variant_tags: list, pins: dict | None = None) -> str:
 ),
 deltas AS (
   SELECT *,
-         used - LAG(used) OVER (PARTITION BY area ORDER BY built_at, build_id) AS delta
+         used - LAG(used) OVER (PARTITION BY branch, area ORDER BY built_at, build_id) AS delta
   FROM per_build
 )"""
 
@@ -376,8 +396,8 @@ def latest_builds(variant_tags: list, pins: dict | None = None, areas: list = ()
     columns = ",\n".join(
         f"       round(100.0 * max(used) FILTER (WHERE area = {_literal(area)})\n"
         f"                   / NULLIF(max(total) FILTER (WHERE area = {_literal(area)}), 0), 1)"
-        f' AS "{area} %",\n'
-        f'       max(delta_text) FILTER (WHERE area = {_literal(area)}) AS "{area} Δ"'
+        f" AS {_ident(area + ' %')},\n"
+        f"       max(delta_text) FILTER (WHERE area = {_literal(area)}) AS {_ident(area + ' Δ')}"
         for area in areas
     )
     return f"""{_build_deltas(variant_tags, pins)},
@@ -414,10 +434,10 @@ def delta_per_build(
     per-region charts this one can name its columns.
     """
     columns = ",\n".join(
-        f'         max(delta) FILTER (WHERE area = {_literal(area)}) AS "{area}"'
+        f"         max(delta) FILTER (WHERE area = {_literal(area)}) AS {_ident(area)}"
         for area in areas
     )
-    quoted = ", ".join(f'"{area}"' for area in areas)
+    quoted = ", ".join(_ident(area) for area in areas)
     return f"""{_build_deltas(variant_tags, pins)}
 SELECT "Build", {quoted}
 FROM (

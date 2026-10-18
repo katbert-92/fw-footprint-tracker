@@ -10,3 +10,6 @@ venv/
 # Generated per project into a subdirectory, which the dashboard provider
 # turns into a Grafana folder. Artefacts: regenerate with fwtrack-dash.
 deploy/grafana/dashboards/**/*.json
+
+# ./fwtrack.sh backup
+backups/

@@ -13,7 +13,6 @@ import os
 import sys
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -22,8 +21,6 @@ from .grafana.gen_dashboard import USER_AGENT, auth_header
 from .log import get_logger, setup_logging
 
 logger = get_logger(__name__)
-
-SCHEMA_FILE = Path("deploy/schema.sql")
 
 OK, FAIL, WARN = "✅", "❌", "⚠️ "
 
@@ -34,17 +31,14 @@ def parse_args():
     parser.add_argument(
         "--apply-schema",
         action="store_true",
-        help=f"Apply {SCHEMA_FILE} if the tables are missing "
-        "(the bundled container does this itself)",
-    )
-    parser.add_argument(
-        "--schema-file", type=Path, default=SCHEMA_FILE, help="Schema file to apply"
+        help="Create or update the tables, and Grafana's read-only account when "
+        f"{db.READER_PASSWORD_ENV} is set (the bundled ingest service does this itself)",
     )
 
     return parser.parse_args()
 
 
-def check_database(apply_schema: bool, schema_file: Path) -> bool:
+def check_database(apply_schema: bool) -> bool:
     try:
         conn = db.connect()
     except Exception as e:
@@ -55,26 +49,34 @@ def check_database(apply_schema: bool, schema_file: Path) -> bool:
     with conn:
         print(f"{OK} database: connected")
 
-        if not db.schema_ready(conn):
-            if not apply_schema:
-                print(f"{FAIL} schema: tables are missing")
-                print("     Apply it with: fwtrack-init --apply-schema")
-                return False
-
-            if not schema_file.is_file():
-                print(f"{FAIL} schema: {schema_file} not found")
-                return False
-
-            with conn.cursor() as cur:
-                cur.execute(schema_file.read_text())
-            conn.commit()
-            print(f"{OK} schema: applied from {schema_file}")
+        if apply_schema:
+            db.apply_schema(conn, os.getenv(db.READER_PASSWORD_ENV) or None)
+            print(f"{OK} schema: applied")
+        elif not db.schema_ready(conn):
+            print(f"{FAIL} schema: tables are missing")
+            print("     Apply it with: fwtrack-init --apply-schema")
+            return False
         else:
             print(f"{OK} schema: present")
 
+        report_reader(conn)
         report_contents(conn)
 
     return True
+
+
+def report_reader(conn) -> None:
+    """Whether Grafana has an account of its own that can only read."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (db.READER_ROLE,))
+        present = cur.fetchone() is not None
+
+    if present:
+        print(f"{OK} grafana account: {db.READER_ROLE}, read-only")
+    else:
+        print(f"{WARN}grafana account: {db.READER_ROLE} does not exist")
+        print(f"     Grafana should not connect as the owner: set {db.READER_PASSWORD_ENV}")
+        print("     and run fwtrack-init --apply-schema")
 
 
 def report_contents(conn) -> None:
@@ -123,7 +125,7 @@ def main():
     load_dotenv(find_dotenv(usecwd=True))
 
     print()
-    if not check_database(args.apply_schema, args.schema_file):
+    if not check_database(args.apply_schema):
         sys.exit(1)
 
     check_grafana()

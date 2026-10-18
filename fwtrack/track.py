@@ -18,8 +18,8 @@ from dotenv import find_dotenv, load_dotenv
 
 from . import db
 from .config import (
-    DEFAULT_CONFIG_FILE,
     collect_custom_tags,
+    find_config,
     load_config,
     load_meta,
     resolve_area,
@@ -44,7 +44,10 @@ def parse_args():
         "-m", "--meta", type=Path, help="Build metadata JSON, if the project has one"
     )
     parser.add_argument(
-        "-c", "--config", type=Path, default=DEFAULT_CONFIG_FILE, help="Tracking config"
+        "-c",
+        "--config",
+        type=Path,
+        help="Tracking config (default: fw_tracking.toml, build/fw_tracking.toml)",
     )
     parser.add_argument(
         "--toolchain", default="", help="Override the toolchain recorded by fwtrack-analyse"
@@ -83,7 +86,7 @@ def read_json(path: Path) -> dict:
         sys.exit(1)
 
 
-def git_output(repo: Path, *args: str, timeout: int = 10) -> str:
+def git_output(repo: Path, *args: str, timeout: int = 10, quiet: bool = False) -> str:
     """Run git against an explicit repository.
 
     Never relies on the current directory: the tool is installed as a package
@@ -100,7 +103,8 @@ def git_output(repo: Path, *args: str, timeout: int = 10) -> str:
             cmd, capture_output=True, text=True, check=True, timeout=timeout
         ).stdout.strip()
     except (subprocess.SubprocessError, OSError) as e:
-        logger.warning(f"git command {' '.join(cmd)} failed: {e}")
+        if not quiet:
+            logger.warning(f"git command {' '.join(cmd)} failed: {e}")
         return ""
 
 
@@ -317,7 +321,8 @@ def build_record(
     version = (
         version_override
         or resolve_version(meta, config)
-        or git_output(repo, "describe", "--tags", "--abbrev=0")
+        # Quiet: a repository with no tags yet is the usual case, not a fault.
+        or git_output(repo, "describe", "--tags", "--abbrev=0", quiet=True)
     )
 
     return {
@@ -364,25 +369,26 @@ def main():
         return
 
     analysis = read_json(args.input)
-    config = load_config(args.config)
-    meta = load_meta(config, args.meta)
-
-    usage = analysis["regions"]
-    toolchain = args.toolchain or analysis.get("toolchain", "")
-
-    build = build_record(meta, config, args.tag, toolchain, args.repo)
-    regions = region_records(usage, config)
-
-    if args.dry_run:
-        print(json.dumps({"build": build, "regions": regions}, indent=2, default=str))
-        logger.info(f"Dry run: {len(regions)} regions not written")
-        return
-
     try:
-        with db.connect() as conn:
-            db.write_build(conn, build, regions)
+        config = load_config(find_config(args.config))
+        meta = load_meta(config, args.meta)
+
+        usage = analysis["regions"]
+        toolchain = args.toolchain or analysis.get("toolchain", "")
+
+        build = build_record(meta, config, args.tag, toolchain, args.repo)
+        regions = region_records(usage, config)
+
+        if args.dry_run:
+            print(json.dumps({"build": build, "regions": regions}, indent=2, default=str))
+            logger.info(f"Dry run: {len(regions)} regions not written")
+            return
+
+        # The same path as fwtrack's: over HTTP when FWTRACK_URL is set, which
+        # is what a runner without database credentials depends on.
+        db.record(build, regions)
     except Exception as e:
-        logger.error(f"Failed to write to the database: {e}")
+        logger.error(f"Failed to record the build: {e}")
         sys.exit(1)
 
 

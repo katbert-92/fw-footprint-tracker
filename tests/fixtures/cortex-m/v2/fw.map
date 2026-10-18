@@ -1,0 +1,151 @@
+Archive member included to satisfy reference by file (symbol)
+
+libutil.a(util.o)             main.o (util_sum)
+
+Discarded input sections
+
+ .text          0x00000000        0x0 main.o
+ .data          0x00000000        0x0 main.o
+ .bss           0x00000000        0x0 main.o
+ .rodata.banner
+                0x00000000        0x8 main.o
+ .text          0x00000000        0x0 libutil.a(util.o)
+ .data          0x00000000        0x0 libutil.a(util.o)
+ .bss           0x00000000        0x0 libutil.a(util.o)
+ .text.util_unused
+                0x00000000        0x4 libutil.a(util.o)
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+FLASH            0x08000000         0x00010000         xr
+RAM              0x20000000         0x00004000         xrw
+BACKUP           0x40024000         0x00001000
+*default*        0x00000000         0xffffffff
+
+Linker script and memory map
+
+LOAD main.o
+LOAD libutil.a
+
+.isr_vector     0x08000000        0x8
+ *(.isr_vector)
+ .isr_vector    0x08000000        0x8 main.o
+
+.text           0x08000008       0xb4
+ *(.text .text.*)
+ .text.helper   0x08000008       0x10 main.o
+ .text.extra_feature
+                0x08000018       0x2c main.o
+                0x08000018                extra_feature
+ .text.Reset_Handler
+                0x08000044       0x48 main.o
+                0x08000044                Reset_Handler
+ .text.util_sum
+                0x0800008c       0x28 libutil.a(util.o)
+                0x0800008c                util_sum
+ .text.util_name
+                0x080000b4        0x8 libutil.a(util.o)
+                0x080000b4                util_name
+
+.glue_7         0x080000bc        0x0
+ .glue_7        0x080000bc        0x0 linker stubs
+
+.glue_7t        0x080000bc        0x0
+ .glue_7t       0x080000bc        0x0 linker stubs
+
+.vfp11_veneer   0x080000bc        0x0
+ .vfp11_veneer  0x080000bc        0x0 linker stubs
+
+.v4_bx          0x080000bc        0x0
+ .v4_bx         0x080000bc        0x0 linker stubs
+
+.iplt           0x080000bc        0x0
+ .iplt          0x080000bc        0x0 main.o
+
+.rodata         0x080000bc       0x6c
+ *(.rodata .rodata.*)
+ .rodata.Reset_Handler.str1.1
+                0x080000bc       0x2a main.o
+ .rodata.util_name.str1.1
+                0x080000e6       0x2a libutil.a(util.o)
+ *fill*         0x080000e6        0x2 
+ .rodata.weights
+                0x080000e8       0x40 libutil.a(util.o)
+
+.rel.dyn        0x08000128        0x0
+ .rel.iplt      0x08000128        0x0 main.o
+
+.data           0x20000000       0x20 load address 0x08000128
+ *(.data .data.*)
+ .data.table    0x20000000       0x20 main.o
+                0x20000000                table
+
+.igot.plt       0x20000020        0x0 load address 0x08000148
+ .igot.plt      0x20000020        0x0 main.o
+
+.bss            0x20000020        0x8 load address 0x08000148
+ *(.bss .bss.* COMMON)
+ .bss.sink      0x20000020        0x4 main.o
+                0x20000020                sink
+ .bss.counter   0x20000024        0x4 main.o
+
+.backup         0x40024000        0x4
+ *(.backup)
+ .backup        0x40024000        0x4 main.o
+                0x40024000                backup_word
+OUTPUT(fw.elf elf32-littlearm)
+LOAD linker stubs
+
+.debug_info     0x00000000      0x318
+ .debug_info    0x00000000      0x203 main.o
+ .debug_info    0x00000203      0x115 libutil.a(util.o)
+
+.debug_abbrev   0x00000000      0x22e
+ .debug_abbrev  0x00000000      0x154 main.o
+ .debug_abbrev  0x00000154       0xda libutil.a(util.o)
+
+.debug_loclists
+                0x00000000       0xd9
+ .debug_loclists
+                0x00000000       0x70 main.o
+ .debug_loclists
+                0x00000070       0x69 libutil.a(util.o)
+
+.debug_aranges  0x00000000       0x60
+ .debug_aranges
+                0x00000000       0x30 main.o
+ .debug_aranges
+                0x00000030       0x30 libutil.a(util.o)
+
+.debug_rnglists
+                0x00000000       0x62
+ .debug_rnglists
+                0x00000000       0x31 main.o
+ .debug_rnglists
+                0x00000031       0x31 libutil.a(util.o)
+
+.debug_line     0x00000000      0x1d3
+ .debug_line    0x00000000      0x123 main.o
+ .debug_line    0x00000123       0xb0 libutil.a(util.o)
+
+.debug_str      0x00000000      0x129
+ .debug_str     0x00000000      0x129 main.o
+                                0x118 (size before relaxing)
+ .debug_str     0x00000129       0xc4 libutil.a(util.o)
+
+.comment        0x00000000       0x45
+ .comment       0x00000000       0x45 main.o
+                                 0x46 (size before relaxing)
+ .comment       0x00000045       0x46 libutil.a(util.o)
+
+.ARM.attributes
+                0x00000000       0x2e
+ .ARM.attributes
+                0x00000000       0x2e main.o
+ .ARM.attributes
+                0x0000002e       0x2e libutil.a(util.o)
+
+.debug_frame    0x00000000       0xa0
+ .debug_frame   0x00000000       0x54 main.o
+ .debug_frame   0x00000054       0x4c libutil.a(util.o)

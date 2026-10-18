@@ -20,11 +20,30 @@ from .config import (
     find_config,
     load_config,
     load_meta,
+    resolve_area,
+    resolve_thresholds,
 )
 from .log import get_logger, setup_logging
 from .track import ENABLE_ENV, TRUTHY, build_record, region_records
 
 logger = get_logger(__name__)
+
+# Distinct from 1, so a pipeline can tell "over budget" from "broken".
+OVER_BUDGET_EXIT = 2
+
+
+class BudgetExceeded(Exception):
+    """A region is past the highest warning level set for it."""
+
+
+def over_budget(usage: dict, config: dict) -> list:
+    """Regions at or past their highest threshold, as readable lines."""
+    over = []
+    for region, info in usage.items():
+        levels = resolve_thresholds(region, resolve_area(region, config), config)
+        if levels and info.get("total") and info["pcnt"] >= levels[-1]:
+            over.append(f"{region} {info['pcnt']:.1f}% (budget {levels[-1]}%)")
+    return over
 
 
 def parse_args():
@@ -69,6 +88,15 @@ def parse_args():
     parser.add_argument(
         "-n", "--dry-run", action="store_true", help="Print what would be recorded and stop"
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help=f"Exit with status {OVER_BUDGET_EXIT} when a region is past its highest threshold "
+        "(the build is still recorded)",
+    )
+    parser.add_argument(
+        "--sections", action="store_true", help="Also print every allocated section"
+    )
 
     return parser.parse_args()
 
@@ -92,12 +120,16 @@ def run(
     dsn: str | None = None,
     read_dotenv: bool = True,
     sections: bool = False,
+    check: bool = False,
 ) -> int | None:
     """Analyse one build and record it. Returns the build id, or None if not recorded.
 
     The library entry point, for build systems that loop over variants in
     Python: calling this once per variant records each one, where a single
     invocation from the shell would only ever see the last.
+
+    check raises BudgetExceeded once the build is recorded, if a region is
+    past the highest threshold configured for it.
     """
     # A convenience, not a requirement: .env is read if one is there, and every
     # setting it might hold can be passed as an argument instead. Pass
@@ -123,6 +155,7 @@ def run(
         )
 
     analysis = analyse(elf_path, map_path, sections)
+    over = over_budget(analysis["regions"], settings) if check else []
 
     if output:
         output = Path(output)
@@ -130,30 +163,33 @@ def run(
         output.write_text(json.dumps(analysis, indent=4) + "\n", encoding="utf-8")
         logger.info(f"Analysis written to {output}")
 
+    build_id = None
     if os.getenv(ENABLE_ENV, "0").lower() not in TRUTHY:
         logger.info(f"{ENABLE_ENV} is not set, not recording this build")
-        return None
+    else:
+        build = build_record(
+            load_meta(settings, Path(meta) if meta else None),
+            settings,
+            tags or [],
+            analysis["toolchain"],
+            Path(repo),
+            project,
+            version,
+            branch,
+            author,
+            origin,
+        )
+        regions = region_records(analysis["regions"], settings)
 
-    build = build_record(
-        load_meta(settings, Path(meta) if meta else None),
-        settings,
-        tags or [],
-        analysis["toolchain"],
-        Path(repo),
-        project,
-        version,
-        branch,
-        author,
-        origin,
-    )
-    regions = region_records(analysis["regions"], settings)
+        if dry_run:
+            print(json.dumps({"build": build, "regions": regions}, indent=2, default=str))
+            logger.info(f"Dry run: {len(regions)} regions not written")
+        else:
+            build_id = db.record(build, regions, url=url, token=token, dsn=dsn)
 
-    if dry_run:
-        print(json.dumps({"build": build, "regions": regions}, indent=2, default=str))
-        logger.info(f"Dry run: {len(regions)} regions not written")
-        return None
-
-    return db.record(build, regions, url=url, token=token, dsn=dsn)
+    if over:
+        raise BudgetExceeded("Over budget: " + "; ".join(over))
+    return build_id
 
 
 def main():
@@ -175,7 +211,12 @@ def main():
             repo=args.repo,
             output=args.output,
             dry_run=args.dry_run,
+            sections=args.sections,
+            check=args.check,
         )
+    except BudgetExceeded as e:
+        logger.error(e)
+        sys.exit(OVER_BUDGET_EXIT)
     except FileNotFoundError as e:
         logger.error(e)
         sys.exit(1)

@@ -4,8 +4,10 @@ import json
 import os
 import urllib.error
 import urllib.request
+from importlib.resources import files
 
 import psycopg
+from psycopg import sql
 from psycopg.types.json import Jsonb
 
 from . import __version__
@@ -17,6 +19,14 @@ DSN_ENV = "FWTRACK_DSN"
 URL_ENV = "FWTRACK_URL"
 TOKEN_ENV = "FWTRACK_INGEST_TOKEN"
 USER_AGENT = f"fw-footprint-tracker/{__version__}"
+
+# What Grafana connects as. Every Grafana viewer can send the datasource any
+# SQL through /api/ds/query -- anonymous ones included -- so the account it
+# uses must not be able to do more than read, and not for long.
+READER_ROLE = "fwtrack_grafana"
+READER_PASSWORD_ENV = "FWTRACK_GRAFANA_DB_PASSWORD"
+READER_LIMITS = {"statement_timeout": "30s", "default_transaction_read_only": "on"}
+READER_CONNECTIONS = 20
 
 INSERT_BUILD = """
 INSERT INTO builds (project, built_at, commit, branch, version, origin, dirty,
@@ -104,6 +114,12 @@ WHERE project = %(project)s AND tags ? %(old)s
 # memory_usage goes with it: the foreign key is ON DELETE CASCADE.
 DELETE_BUILD = "DELETE FROM builds WHERE id = %s RETURNING project, commit, built_at"
 
+# A rerun of a build replaces it, regions included: one the linker script no
+# longer has must not stay behind with the numbers of the previous run.
+DROP_STALE_REGIONS = """
+DELETE FROM memory_usage WHERE build_id = %(build_id)s AND NOT region = ANY(%(regions)s)
+"""
+
 
 def record(build: dict, regions: list, url=None, token=None, dsn=None) -> int | None:
     """Store one build, over HTTP if a URL is known and straight to the database otherwise.
@@ -168,7 +184,7 @@ def post(url: str, build: dict, regions: list, token: str | None = None) -> int 
     result = api(
         "POST", "/ingest/builds", {"build": build, "regions": regions}, url=url, token=token
     )
-    logger.info(f"Recorded build {result.get('build_id')} via {url}")
+    logger.info(f"Recorded {build['project']}@{build['commit']} via {url}")
     return result.get("build_id")
 
 
@@ -211,6 +227,10 @@ def write_build(conn: psycopg.Connection, build: dict, regions: list, budgets: b
         )
         build_id = cur.fetchone()[0]
 
+        cur.execute(
+            DROP_STALE_REGIONS,
+            {"build_id": build_id, "regions": [region["region"] for region in regions]},
+        )
         cur.executemany(
             INSERT_USAGE,
             [
@@ -247,7 +267,7 @@ def write_build(conn: psycopg.Connection, build: dict, regions: list, budgets: b
         )
 
     conn.commit()
-    logger.info(f"Stored build {build_id} with {len(regions)} regions")
+    logger.info(f"Stored {build['project']}@{build['commit']} with {len(regions)} regions")
     return build_id
 
 
@@ -255,6 +275,71 @@ def schema_ready(conn: psycopg.Connection) -> bool:
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('public.memory_points') IS NOT NULL")
         return bool(cur.fetchone()[0])
+
+
+def schema_sql() -> str:
+    return files("fwtrack").joinpath("schema.sql").read_text(encoding="utf-8")
+
+
+def apply_schema(
+    conn: psycopg.Connection, reader_password: str | None = None, reader: str = READER_ROLE
+) -> None:
+    """Bring the schema up to this version, and the reader account with it.
+
+    Safe on every start: each statement is a no-op when what it creates is
+    already there. A view whose columns changed cannot be replaced in place,
+    so that one case is dropped and created again.
+    """
+    ddl = schema_sql()
+    try:
+        with conn.transaction():
+            conn.execute(ddl)
+    except psycopg.errors.InvalidTableDefinition:
+        logger.info("memory_points changed shape; recreating it")
+        with conn.transaction():
+            conn.execute("DROP VIEW IF EXISTS memory_points;\n" + ddl)
+
+    if reader_password:
+        # Apart from the schema, so that a failure there cannot leave Grafana
+        # locked out of a database it could read until now.
+        with conn.transaction():
+            grant_reader(conn, reader_password, reader)
+
+
+def grant_reader(conn: psycopg.Connection, password: str, name: str = READER_ROLE) -> None:
+    """Create or update the read-only account Grafana connects as.
+
+    Roles belong to the server rather than to one database, which is why the
+    name can be changed: a test must not reset the password of the real one.
+    """
+    role = sql.Identifier(name)
+    statements = [
+        sql.SQL(
+            "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = {name}) "
+            "THEN CREATE ROLE {role} LOGIN; END IF; END $$"
+        ).format(name=sql.Literal(name), role=role),
+        # Set on every start, so a password changed in .env takes effect.
+        sql.SQL(
+            "ALTER ROLE {} WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "CONNECTION LIMIT {} PASSWORD {}"
+        ).format(role, sql.Literal(READER_CONNECTIONS), sql.Literal(password)),
+        *(
+            sql.SQL("ALTER ROLE {} SET {} = {}").format(
+                role, sql.Identifier(setting), sql.Literal(value)
+            )
+            for setting, value in READER_LIMITS.items()
+        ),
+        sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
+            sql.Identifier(conn.info.dbname), role
+        ),
+        sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(role),
+        sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA public TO {}").format(role),
+        sql.SQL("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {}").format(
+            role
+        ),
+    ]
+    for statement in statements:
+        conn.execute(statement)
 
 
 def fetch_column(conn: psycopg.Connection, query: str, params: tuple = ()) -> list:
@@ -473,30 +558,12 @@ def delete_build(conn: psycopg.Connection, build_id: int, dry_run: bool = False)
     return {"id": build_id, "project": project, "commit": commit, "built_at": built_at}
 
 
-# Created on use rather than by a migration: deployments predating these
-# settings would otherwise need a hand-applied ALTER before the next dashboard
-# could be generated, and schema.sql only ever runs on an empty database.
-SETTINGS_TABLE = """
-CREATE TABLE IF NOT EXISTS project_settings (
-    project      TEXT        PRIMARY KEY,
-    variant_tags TEXT[],
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-)
-"""
-SETTINGS_COLUMNS = """
-ALTER TABLE project_settings
-    ADD COLUMN IF NOT EXISTS main_branch TEXT,
-    ADD COLUMN IF NOT EXISTS overview_pins TEXT[]
-"""
-
 SETTINGS = ("variant_tags", "main_branch", "overview_pins")
 
 
 def project_settings(conn: psycopg.Connection, project: str) -> dict:
     """What this project has chosen about how its dashboards are built."""
     with conn.cursor() as cur:
-        cur.execute(SETTINGS_TABLE)
-        cur.execute(SETTINGS_COLUMNS)
         cur.execute(
             f"SELECT {', '.join(SETTINGS)} FROM project_settings WHERE project = %s", (project,)
         )
@@ -519,8 +586,6 @@ def save_project_settings(conn: psycopg.Connection, project: str, **values) -> N
     placeholders = ", ".join(f"%({k})s" for k in values)
     updates = ", ".join(f"{k} = EXCLUDED.{k}" for k in values)
     with conn.cursor() as cur:
-        cur.execute(SETTINGS_TABLE)
-        cur.execute(SETTINGS_COLUMNS)
         cur.execute(
             f"INSERT INTO project_settings (project, {columns}) "
             f"VALUES (%(project)s, {placeholders}) "
@@ -528,6 +593,21 @@ def save_project_settings(conn: psycopg.Connection, project: str, **values) -> N
             {"project": project, **values},
         )
 
+    conn.commit()
+
+
+def reset_project_settings(conn: psycopg.Connection, project: str, names: list) -> None:
+    """Forget the settings named, so the defaults apply again."""
+    names = [n for n in names if n in SETTINGS]
+    if not names:
+        return
+
+    with conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE project_settings SET {', '.join(f'{n} = NULL' for n in names)}, "
+            "updated_at = now() WHERE project = %s",
+            (project,),
+        )
     conn.commit()
 
 

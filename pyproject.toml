@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.6"]
+dev = ["ruff>=0.6", "pytest>=8"]
 
 [project.urls]
 Homepage = "https://github.com/katbert-92/fw-footprint-tracker"
@@ -41,9 +41,16 @@ fwtrack-dash = "fwtrack.grafana.gen_dashboard:main"
 fwtrack-init = "fwtrack.init:main"
 fwtrack-server = "fwtrack.server:main"
 fwtrack-tags = "fwtrack.tags:main"
+fwtrack-size = "fwtrack.size:main"
 
 [tool.setuptools.packages.find]
 include = ["fwtrack*"]
+
+[tool.setuptools.package-data]
+fwtrack = ["schema.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
