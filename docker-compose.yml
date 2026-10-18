@@ -1,7 +1,6 @@
-# Server side of the tracker: a database and a Grafana that already knows about
-# it. The same file runs locally and on a server -- only .env differs.
-#
-#   cp .env.example .env && docker compose up -d
+# Server side of the tracker: a database, the endpoint builds report to, and a
+# Grafana that already knows about both. The same file runs locally and on a
+# server -- only .env differs, and ./fwtrack.sh up writes that.
 #
 # Ports bind to the loopback interface by default, for a host that already has a
 # reverse proxy. Set BIND_ADDRESS=0.0.0.0 in .env to reach the services
@@ -16,7 +15,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-fwtrack}
       POSTGRES_USER: ${POSTGRES_USER:-fwtrack}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run ./fwtrack.sh up, which generates it}
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -37,7 +36,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run ./fwtrack.sh up, which generates it}
       # Without this the first screen is a login prompt, which is exactly the
       # friction this tool is meant to avoid. Viewers cannot edit, and what they
       # can query is limited by the read-only account below; set false in .env
@@ -50,7 +49,7 @@ services:
       FWTRACK_DB_HOST: postgres:5432
       FWTRACK_DB_NAME: ${POSTGRES_DB:-fwtrack}
       FWTRACK_DB_USER: fwtrack_grafana
-      FWTRACK_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?run `make up`, which generates it}
+      FWTRACK_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?run ./fwtrack.sh up, which generates it}
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
     volumes:
@@ -71,7 +70,7 @@ services:
         condition: service_healthy
     environment:
       FWTRACK_DSN: postgresql://${POSTGRES_USER:-fwtrack}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-fwtrack}
-      FWTRACK_INGEST_TOKEN: ${FWTRACK_INGEST_TOKEN:?run `make up`, which generates one}
+      FWTRACK_INGEST_TOKEN: ${FWTRACK_INGEST_TOKEN:?run ./fwtrack.sh up, which generates it}
       FWTRACK_GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${INGEST_PORT:-8099}:8099"
