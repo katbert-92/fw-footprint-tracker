@@ -86,7 +86,7 @@ def read_json(path: Path) -> dict:
         sys.exit(1)
 
 
-def git_output(repo: Path, *args: str, timeout: int = 10) -> str:
+def git_output(repo: Path, *args: str, timeout: int = 10, quiet: bool = False) -> str:
     """Run git against an explicit repository.
 
     Never relies on the current directory: the tool is installed as a package
@@ -103,7 +103,8 @@ def git_output(repo: Path, *args: str, timeout: int = 10) -> str:
             cmd, capture_output=True, text=True, check=True, timeout=timeout
         ).stdout.strip()
     except (subprocess.SubprocessError, OSError) as e:
-        logger.warning(f"git command {' '.join(cmd)} failed: {e}")
+        if not quiet:
+            logger.warning(f"git command {' '.join(cmd)} failed: {e}")
         return ""
 
 
@@ -320,7 +321,8 @@ def build_record(
     version = (
         version_override
         or resolve_version(meta, config)
-        or git_output(repo, "describe", "--tags", "--abbrev=0")
+        # Quiet: a repository with no tags yet is the usual case, not a fault.
+        or git_output(repo, "describe", "--tags", "--abbrev=0", quiet=True)
     )
 
     return {

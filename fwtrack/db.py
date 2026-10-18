@@ -184,7 +184,7 @@ def post(url: str, build: dict, regions: list, token: str | None = None) -> int 
     result = api(
         "POST", "/ingest/builds", {"build": build, "regions": regions}, url=url, token=token
     )
-    logger.info(f"Recorded build {result.get('build_id')} via {url}")
+    logger.info(f"Recorded {build['project']}@{build['commit']} via {url}")
     return result.get("build_id")
 
 
@@ -267,7 +267,7 @@ def write_build(conn: psycopg.Connection, build: dict, regions: list, budgets: b
         )
 
     conn.commit()
-    logger.info(f"Stored build {build_id} with {len(regions)} regions")
+    logger.info(f"Stored {build['project']}@{build['commit']} with {len(regions)} regions")
     return build_id
 
 
