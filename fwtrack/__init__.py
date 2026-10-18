@@ -10,6 +10,7 @@ except PackageNotFoundError:
     # Imported from a source checkout that was never pip-installed.
     __version__ = "0+unknown"
 
+from .cli import BudgetExceeded  # noqa: E402
 from .cli import run as track_build  # noqa: E402
 
-__all__ = ["__version__", "track_build"]
+__all__ = ["BudgetExceeded", "__version__", "track_build"]

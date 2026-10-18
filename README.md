@@ -164,10 +164,11 @@ track_build(config="build/fw_tracking.toml", tags=["cfg=2", "board=rev-c"])
 ```
 
 Nothing is read from the environment that you do not want: pass `url=`,
-`token=`, `dsn=`, `read_dotenv=False`.
+`token=`, `dsn=`, `read_dotenv=False`. `check=True` raises `BudgetExceeded`
+the way `--check` exits.
 
-For a closer look while debugging, `sections=True` also prints every allocated
-section with its region and size.
+For a closer look while debugging, `sections=True` (`fwtrack --sections`) also
+prints every allocated section with its region and size.
 
 ### Branches in CI
 
@@ -220,6 +221,32 @@ and `idf.py reconfigure`, which is also what picks up installing or removing it
 later. Where it is not installed the step is skipped, so the firmware builds the
 same for everyone. [examples/esp-idf.toml](examples/esp-idf.toml)
 has groups for every chip family.
+
+### In CI
+
+GitLab: record every build, keep a snapshot, and on a merge request show what
+it costs against the target branch.
+
+```yaml
+firmware:
+  variables:
+    FWTRACK_ENABLE: "1"   # FWTRACK_URL, FWTRACK_INGEST_TOKEN: CI/CD variables
+  script:
+    - make all            # idf.py build, west build, ...
+    - fwtrack --check
+    - fwtrack-size -o footprint.json
+    - |
+      if [ -n "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" ]; then
+        curl -sfo base.json -H "JOB-TOKEN: $CI_JOB_TOKEN" \
+          "$CI_API_V4_URL/projects/$CI_PROJECT_ID/jobs/artifacts/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME/raw/footprint.json?job=$CI_JOB_NAME" &&
+        fwtrack-size footprint.json --diff base.json --max-growth 4096
+      fi
+  artifacts:
+    paths: [footprint.json]
+```
+
+`fwtrack-size --markdown` prints the same diff as tables, ready to post as a
+merge request note.
 
 ## Where the bytes went
 
