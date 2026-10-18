@@ -37,6 +37,6 @@ jobs:
       FWTRACK_INGEST_TOKEN: ci
     steps:
       - uses: actions/checkout@v7
-      - run: shellcheck fwtrack.sh
+      - run: shellcheck fwtrack.sh scripts/release.sh
       - run: docker compose config --quiet
       - run: docker build --tag fwtrack-ingest .
