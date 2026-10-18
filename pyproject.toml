@@ -41,6 +41,7 @@ fwtrack-dash = "fwtrack.grafana.gen_dashboard:main"
 fwtrack-init = "fwtrack.init:main"
 fwtrack-server = "fwtrack.server:main"
 fwtrack-tags = "fwtrack.tags:main"
+fwtrack-size = "fwtrack.size:main"
 
 [tool.setuptools.packages.find]
 include = ["fwtrack*"]

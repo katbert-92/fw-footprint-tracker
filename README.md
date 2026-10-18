@@ -221,6 +221,38 @@ later. Where it is not installed the step is skipped, so the firmware builds the
 same for everyone. [examples/esp-idf.toml](examples/esp-idf.toml)
 has groups for every chip family.
 
+## Where the bytes went
+
+```bash
+fwtrack-size                           # this build: each region by object and symbol
+fwtrack-size -o before.json            # keep a snapshot
+fwtrack-size --diff before.json        # after a change: what moved, and where
+fwtrack-size new.elf --diff old.elf    # two builds, each map beside its ELF
+```
+
+```text
+app: +304 B
+libmain.a(main.c.obj)  +308  2,291 → 2,599
+    demo_curve         +128        0 → 128  new
+    (strings)           +76      726 → 802
+    Main_DemoCurve      +58         0 → 58  new
+    app_main            +46      396 → 442
+(fill)                   -4      642 → 638
+```
+
+The map names the object every input section came from, so no debug info is
+needed; DWARF fills in what the map cannot say, such as the source of a
+function under LTO. Every level adds up to the region total that gets recorded.
+String literals have no symbol and stay with the object that brought them, as
+`(strings)`; what the linker saved by folding duplicates across objects is
+`(merged)`; whatever no input section covers — alignment, image headers — is
+`(other)`.
+
+`--markdown` prints the diff for a merge request, `--max-growth BYTES` fails
+the job when any region grew by more, `--top` and `--symbols` set how much is
+listed. Snapshots compare across machines: paths inside the project are
+relative, toolchain paths are dropped.
+
 ## Dimensions
 
 Anything worth filtering by is a tag. Tags become single-choice dashboard
