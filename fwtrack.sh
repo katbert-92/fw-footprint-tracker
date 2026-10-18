@@ -5,6 +5,8 @@
 #   ./fwtrack.sh up                              start it, or restart it after a change
 #   ./fwtrack.sh update [VERSION]                newer version, restart, regenerate dashboards
 #   ./fwtrack.sh info                            addresses, admin password, ingest token
+#   ./fwtrack.sh https fwtrack.example.com       serve it over HTTPS on that domain
+#   ./fwtrack.sh https off                       stop doing that
 #   ./fwtrack.sh backup [DIR]                    dump the database, gzipped, into backups/
 #   ./fwtrack.sh restore FILE [-y]               replace the database with a dump
 #   ./fwtrack.sh check [--project P]             services, schema, data
@@ -48,7 +50,7 @@ need_docker() {
 
 env_file() {
     command -v python3 >/dev/null || die "python3 is needed to write .env: apt install python3"
-    python3 deploy/make-env.py
+    python3 deploy/make-env.py "$@"
 }
 
 # Read one value from .env without sourcing it: a value with a space in it
@@ -88,11 +90,18 @@ wait_ingest() {
 }
 
 info() {
-    local bind host grafana ingest
+    local domain bind host grafana ingest
+    domain=$(env_get FWTRACK_DOMAIN)
     bind=$(env_get BIND_ADDRESS)
-    host=$([ "$bind" = "0.0.0.0" ] && echo "<this server>" || echo "127.0.0.1")
-    grafana="http://$host:$(env_get GRAFANA_PORT)"
-    ingest="http://$host:$(env_get INGEST_PORT)"
+
+    if [ -n "$domain" ]; then
+        grafana="https://$domain"
+        ingest="https://$domain"
+    else
+        host=$([ "$bind" = "0.0.0.0" ] && echo "<this server>" || echo "127.0.0.1")
+        grafana="http://$host:$(env_get GRAFANA_PORT)"
+        ingest="http://$host:$(env_get INGEST_PORT)"
+    fi
 
     echo
     echo "Grafana   $grafana   (admin / $(env_get GRAFANA_ADMIN_PASSWORD))"
@@ -103,10 +112,11 @@ info() {
     echo "  FWTRACK_URL=$ingest"
     echo "  FWTRACK_INGEST_TOKEN=$(env_get FWTRACK_INGEST_TOKEN)"
 
-    if [ "$bind" != "0.0.0.0" ]; then
+    if [ -z "$domain" ] && [ "$bind" != "0.0.0.0" ]; then
         echo
-        echo "Reachable from this machine only. To open it to the network, point a"
-        echo "web server you already run at the two ports above."
+        echo "Reachable from this machine only. To open it to the network:"
+        echo "  ./fwtrack.sh https fwtrack.example.com   HTTPS on a domain pointing here"
+        echo "  or point a web server you already run at the two ports above"
     fi
 }
 
@@ -145,6 +155,28 @@ update() {
     # The rest is done by the script that was just checked out, not by this
     # copy of the old one.
     exec "$BASH" ./fwtrack.sh up --dashboards
+}
+
+https_mode() {
+    local domain=${1:-}
+    [ -n "$domain" ] || die "Usage: ./fwtrack.sh https fwtrack.example.com | off"
+
+    if [ "$domain" = off ]; then
+        env_file --set FWTRACK_DOMAIN= COMPOSE_PROFILES= GRAFANA_ROOT_URL=http://localhost:3000/
+        docker compose rm --stop --force caddy >/dev/null 2>&1 || true
+        up
+        return
+    fi
+
+    local address
+    address=$(python3 -c "import socket,sys; print(socket.gethostbyname(sys.argv[1]))" "$domain" 2>/dev/null) ||
+        die "$domain does not resolve. Point its DNS A record at this server first."
+    echo "$domain resolves to $address -- that has to be this server for the certificate."
+
+    env_file --set "FWTRACK_DOMAIN=$domain" COMPOSE_PROFILES=https "GRAFANA_ROOT_URL=https://$domain/"
+    up
+    echo
+    echo "The first visit may take a few seconds while the certificate is issued."
 }
 
 backup() {
@@ -221,6 +253,9 @@ case "$command" in
         ;;
     info | token)
         info
+        ;;
+    https)
+        https_mode "$@"
         ;;
     backup)
         backup "$@"

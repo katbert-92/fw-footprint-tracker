@@ -5,10 +5,14 @@ things: generate secrets for a fresh install, and add only the keys a newer
 version introduced to an existing one. Regenerating the file wholesale would
 change POSTGRES_PASSWORD, which an already initialised database would then
 refuse.
+
+    python3 deploy/make-env.py                         create, or add what is missing
+    python3 deploy/make-env.py --set KEY=VALUE ...     change settings in place
 """
 
 import secrets
 import socket
+import sys
 from pathlib import Path
 
 ENV_FILE = Path(".env")
@@ -36,7 +40,30 @@ def read_existing() -> dict:
     return values
 
 
+def set_values(pairs: list) -> None:
+    """Replace each KEY's line, or append it, leaving every other line as it was."""
+    updates = dict(pair.split("=", 1) for pair in pairs)
+    lines = ENV_FILE.read_text().splitlines() if ENV_FILE.is_file() else [HEADER.rstrip()]
+
+    out = []
+    for line in lines:
+        key = line.partition("=")[0].strip()
+        if not line.lstrip().startswith("#") and key in updates:
+            out.append(f"{key}={updates.pop(key)}")
+        else:
+            out.append(line)
+    out += [f"{k}={v}" for k, v in updates.items()]
+
+    ENV_FILE.write_text("\n".join(out) + "\n")
+    ENV_FILE.chmod(0o600)
+    print(f"Set in .env: {', '.join(p.split('=', 1)[0] for p in pairs)}")
+
+
 def main() -> None:
+    if sys.argv[1:2] == ["--set"]:
+        set_values(sys.argv[2:])
+        return
+
     existing = read_existing()
 
     defaults = {

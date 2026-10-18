@@ -3,9 +3,10 @@
 # server -- only .env differs, and ./fwtrack.sh up writes that.
 #
 # Ports bind to the loopback interface by default, for a host that already has a
-# reverse proxy. Set BIND_ADDRESS=0.0.0.0 in .env to reach the services
-# directly; the ingest token then travels unencrypted, so that suits a trusted
-# network rather than the open internet.
+# reverse proxy. `./fwtrack.sh https DOMAIN` adds one instead (the caddy service
+# below), with a certificate it renews itself. BIND_ADDRESS=0.0.0.0 reaches the
+# services directly; the ingest token then travels unencrypted, so that suits a
+# trusted network rather than the open internet.
 
 services:
   postgres:
@@ -44,6 +45,8 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: ${GRAFANA_ANONYMOUS:-true}
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_USERS_DEFAULT_THEME: dark
+      # The address people open, for the links Grafana builds itself.
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000/}
       # Consumed by the provisioned datasource. Not the owner: every viewer can
       # send the datasource any SQL, so the account it uses can only read.
       FWTRACK_DB_HOST: postgres:5432
@@ -86,6 +89,31 @@ services:
       retries: 5
       start_period: 60s
 
+  # HTTPS in front of both, for a server without a web server of its own:
+  # `./fwtrack.sh https fwtrack.example.com` turns it on. Needs the domain's DNS
+  # pointing here and ports 80 and 443 free; the certificate comes from Let's
+  # Encrypt and renews itself.
+  caddy:
+    image: caddy:2.11-alpine
+    container_name: fwtrack-caddy
+    restart: unless-stopped
+    profiles: [https]
+    depends_on:
+      - grafana
+      - ingest
+    environment:
+      FWTRACK_DOMAIN: ${FWTRACK_DOMAIN:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
 volumes:
   pgdata:
   grafana-data:
+  caddy-data:
+  caddy-config:

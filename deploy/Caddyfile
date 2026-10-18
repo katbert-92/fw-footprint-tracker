@@ -1,0 +1,11 @@
+# Used by the caddy service (./fwtrack.sh https DOMAIN). Caddy obtains and
+# renews the certificate for the domain by itself.
+{$FWTRACK_DOMAIN} {
+	handle /ingest/* {
+		reverse_proxy ingest:8099
+	}
+
+	handle {
+		reverse_proxy grafana:3000
+	}
+}
