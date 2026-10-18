@@ -228,6 +228,7 @@ fwtrack-size                           # this build: each region by object and s
 fwtrack-size -o before.json            # keep a snapshot
 fwtrack-size --diff before.json        # after a change: what moved, and where
 fwtrack-size new.elf --diff old.elf    # two builds, each map beside its ELF
+fwtrack-size --tree                    # by directory, each with the total under it
 ```
 
 ```text

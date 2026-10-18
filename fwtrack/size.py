@@ -422,7 +422,7 @@ def print_breakdown(snap: dict, top: int, symbols: int) -> None:
         print(_render(rows, "lrr", ["Object / symbol", "Bytes", "Share"]))
 
 
-def print_diff(report: list, top: int, symbols: int) -> None:
+def print_summary(report: list) -> None:
     rows = [
         [
             r["region"],
@@ -435,6 +435,9 @@ def print_diff(report: list, top: int, symbols: int) -> None:
     ]
     print(_render(rows, "lrrrr", ["Region", "Before", "After", "Δ", "Used"]))
 
+
+def print_diff(report: list, top: int, symbols: int) -> None:
+    print_summary(report)
     for r in report:
         if not r["changes"]:
             continue
@@ -451,6 +454,102 @@ def print_diff(report: list, top: int, symbols: int) -> None:
         if hidden:
             moved = sum(c[2] - c[1] for c in hidden)
             rows.append([f"... {len(hidden)} more", _signed(moved), "", ""])
+        print(_render(rows, "lrrl"))
+
+
+def _path(unit: str) -> list:
+    """Where a unit sits in the tree: its directories, then itself."""
+    member = ARCHIVE_MEMBER.match(unit)
+    # (fill), (lto) and the like are names of their own, not archive members.
+    if member and member.group(1):
+        return [*member.group(1).split("/"), member.group(2)]
+    return unit.split("/")
+
+
+def _tree(units: dict) -> dict:
+    """Units nested by directory; each node holds the sum of what is under it.
+
+    units maps a unit to (values, symbols), values being one number per column.
+    """
+
+    def node(width):
+        return {"children": {}, "values": [0] * width, "symbols": []}
+
+    root = node(0)
+    for unit, (values, symbols) in units.items():
+        here = root
+        for part in _path(unit):
+            here = here["children"].setdefault(part, node(len(values)))
+            here["values"] = [a + b for a, b in zip(here["values"], values, strict=True)]
+        here["symbols"] = symbols
+    return root
+
+
+def _tree_rows(node: dict, rank, cells, symbols: int | None, depth: int, level: int = 0) -> list:
+    rows = []
+    for name, child in sorted(node["children"].items(), key=lambda c: (rank(c[1]["values"]), c[0])):
+        # A directory holding one thing is shown as one line, the way a path is
+        # written: thirdparty/lib/src rather than three levels of the same number.
+        while len(child["children"]) == 1 and not child["symbols"]:
+            sub, child = next(iter(child["children"].items()))
+            name = f"{name}/{sub}"
+        rows.append(["  " * level + name, *cells(child["values"])])
+        if depth and level + 1 >= depth:
+            continue
+        rows += _tree_rows(child, rank, cells, symbols, depth, level + 1)
+        shown = [] if symbols is None else child["symbols"][: symbols or None]
+        for sym, values in shown:
+            if sym:
+                rows.append(["  " * (level + 1) + "· " + sym, *cells(values)])
+    return rows
+
+
+def print_tree(snap: dict, symbols: int | None, depth: int) -> None:
+    for region, units in snap["units"].items():
+        info = snap["regions"][region]
+        used, total = info["used"], info.get("total")
+        of = f" of {_kib(total)} ({_pct(used, total)})" if total else ""
+        print(f"\n{region}: {_kib(used)}{of}")
+        if not units:
+            continue
+
+        tree = _tree(
+            {
+                unit: (
+                    [sum(syms.values())],
+                    sorted(([n, [v]] for n, v in syms.items()), key=lambda s: -s[1][0]),
+                )
+                for unit, syms in units.items()
+            }
+        )
+        rows = _tree_rows(
+            tree,
+            rank=lambda v: -v[0],
+            cells=lambda v, used=used: [f"{v[0]:,}", _pct(v[0], used)],
+            symbols=symbols,
+            depth=depth,
+        )
+        print(_render(rows, "lrr", ["Path / symbol", "Bytes", "Share"]))
+
+
+def print_diff_tree(report: list, symbols: int | None, depth: int) -> None:
+    for r in report:
+        if not r["changes"]:
+            continue
+        print(f"\n{r['region']}: {_signed(r['after'] - r['before'])} B")
+        tree = _tree(
+            {
+                unit: ([before, after], [[n, [b, a]] for n, b, a in syms])
+                for unit, before, after, syms in r["changes"]
+            }
+        )
+        rows = _tree_rows(
+            tree,
+            rank=lambda v: -abs(v[1] - v[0]),
+            cells=lambda v: [_signed(v[1] - v[0]), f"{v[0]:,} → {v[1]:,}", _status(v[0], v[1])],
+            symbols=symbols,
+            depth=depth,
+        )
         print(_render(rows, "lrrl"))
 
 
@@ -500,7 +599,19 @@ def parse_args():
     parser.add_argument("-c", "--config", type=Path, help="Tracking config")
     parser.add_argument("-o", "--output", type=Path, help="Save BUILD's snapshot here")
     parser.add_argument("--top", type=int, default=10, help="Objects per region (0: all)")
-    parser.add_argument("--symbols", type=int, default=5, help="Symbols per object (0: all)")
+    parser.add_argument(
+        "--symbols",
+        type=int,
+        help="Symbols per object (0: all; default 5, and none with --tree)",
+    )
+    parser.add_argument(
+        "--tree",
+        action="store_true",
+        help="Nest objects by directory, each directory with the total of what is in it",
+    )
+    parser.add_argument(
+        "--depth", type=int, default=0, help="Directory levels shown with --tree (0: all)"
+    )
     parser.add_argument(
         "--markdown", action="store_true", help="Print the diff as Markdown, for a merge request"
     )
@@ -516,6 +627,8 @@ def parse_args():
 def main():
     setup_logging()
     args = parse_args()
+    # A tree is about directories: symbols only when asked for.
+    symbols = args.symbols if args.symbols is not None or args.tree else 5
 
     try:
         build, map_path = args.build, args.map
@@ -531,7 +644,10 @@ def main():
             logger.info(f"Snapshot written to {args.output}")
 
         if args.diff is None:
-            print_breakdown(new, args.top, args.symbols)
+            if args.tree:
+                print_tree(new, symbols, args.depth)
+            else:
+                print_breakdown(new, args.top, symbols)
             return
 
         report = diff(load(args.diff, args.base_map), new)
@@ -540,9 +656,12 @@ def main():
         sys.exit(1)
 
     if args.markdown:
-        print(markdown_diff(report, args.top, args.symbols), end="")
+        print(markdown_diff(report, args.top, symbols), end="")
+    elif args.tree:
+        print_summary(report)
+        print_diff_tree(report, symbols, args.depth)
     else:
-        print_diff(report, args.top, args.symbols)
+        print_diff(report, args.top, symbols)
 
     if args.max_growth is not None:
         grown = [r for r in report if r["after"] - r["before"] > args.max_growth]

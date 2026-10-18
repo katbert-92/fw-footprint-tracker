@@ -112,3 +112,27 @@ def test_max_growth_fails_the_job(monkeypatch, v1, v2, capsys):
 
     assert exit_info.value.code == 2
     assert "+204" in capsys.readouterr().out
+
+
+def test_tree_nests_by_directory_and_adds_up():
+    units = {
+        "lib/fatfs/ff.c": ([300], []),
+        "lib/fatfs/ffunicode.c": ([700], []),
+        "lib/lfs/lfs.c": ([100], []),
+        "libc.a(memcpy.o)": ([20], []),
+        size.FILL_UNIT: ([4], []),
+    }
+
+    rows = size._tree_rows(
+        size._tree(units), rank=lambda v: -v[0], cells=lambda v: [v[0]], symbols=None, depth=0
+    )
+
+    assert rows == [
+        ["lib", 1100],
+        ["  fatfs", 1000],
+        ["    ffunicode.c", 700],
+        ["    ff.c", 300],
+        ["  lfs/lfs.c", 100],
+        ["libc.a/memcpy.o", 20],
+        [size.FILL_UNIT, 4],
+    ]
