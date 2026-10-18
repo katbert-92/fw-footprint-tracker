@@ -208,7 +208,9 @@ class ElfParser:
             return ""
 
         entries = [e for e in section.data().decode("utf-8", "replace").split("\0") if e]
-        return entries[0] if entries else ""
+        # A clang link lists the linker first; the compiler is what changes code size.
+        compilers = [e for e in entries if not e.startswith("Linker:")]
+        return (compilers or entries or [""])[0]
 
     def get_allocated_sections(self) -> list:
         """Sections that occupy memory, with the address they are loaded from.
