@@ -71,6 +71,7 @@ def test_generate_writes_both_dashboards(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "save_project_settings", lambda c, p, **v: stored.update(v))
     monkeypatch.setattr(db, "reset_project_settings", lambda c, p, names: None)
     monkeypatch.setattr(db, "project_settings", lambda c, p: {})
+    monkeypatch.setattr(db, "list_branches", lambda c, p: ["dev", "feature/x"])
 
     args = Namespace(
         out_dir=tmp_path,
@@ -94,3 +95,6 @@ def test_generate_writes_both_dashboards(tmp_path, monkeypatch):
         ]["list"]
     ]
     assert "cfg" in variables and "bad-name" not in variables
+    # No main branch was named: dev is the usual one, and the overview keeps to it.
+    activity = (tmp_path / "blinky" / "fwtrack-blinky-activity.json").read_text()
+    assert "branch = 'dev'" in activity

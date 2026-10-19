@@ -378,6 +378,12 @@ def discover_variant_tags(conn: psycopg.Connection, project: str) -> list:
     )
 
 
+def list_branches(conn: psycopg.Connection, project: str) -> list:
+    return fetch_column(
+        conn, "SELECT DISTINCT branch FROM builds WHERE project = %s ORDER BY 1", (project,)
+    )
+
+
 def discover_areas(conn: psycopg.Connection, project: str) -> list:
     return fetch_column(
         conn,

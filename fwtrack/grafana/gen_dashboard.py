@@ -43,6 +43,9 @@ USER_AGENT = f"fw-footprint-tracker/{__version__}"
 # Used when the project has no data yet, so that a dashboard still generates.
 FALLBACK_AREAS = ["flash", "ram"]
 
+# Tried in this order when a project names no main branch of its own.
+USUAL_MAIN_BRANCHES = ("dev", "develop", "main", "master")
+
 
 def parse_args(argv: list | None = None):
     parser = argparse.ArgumentParser(description="Generate a Grafana dashboard for one project")
@@ -354,10 +357,17 @@ def generate(conn, project: str, args) -> None:
     settings = db.project_settings(conn, project)
     chosen = chosen or settings.get("variant_tags") or []
     main_branch = settings.get("main_branch") or ""
+    if not main_branch:
+        branches = set(db.list_branches(conn, project))
+        main_branch = next((b for b in USUAL_MAIN_BRANCHES if b in branches), "")
     if main_branch:
         logger.info(f"{project}: dashboards open on branch '{main_branch}'")
 
     pins = parse_tag_pairs(settings.get("overview_pins") or [], "--overview-pin")
+    # The overview is about where the project stands, which is its main branch:
+    # with every branch in it, a feature branch's builds crowd that out.
+    if main_branch:
+        pins.setdefault("branch", main_branch)
     if pins:
         fixed = ", ".join(f"{k}={v}" for k, v in pins.items())
         logger.info(f"{project}: overview pinned to {fixed}")

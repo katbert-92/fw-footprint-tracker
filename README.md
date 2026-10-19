@@ -226,7 +226,8 @@ filters = ["tag", "type", "platform"]     # which dimensions are filters, in thi
 
 The server takes them from the next build and regenerates the dashboards; a
 setting left out of the section goes back to its default. Without the section,
-whatever was set with `./fwtrack.sh dash` stays.
+whatever was set with `./fwtrack.sh dash` stays. With no `main_branch` anywhere,
+the first of `dev`, `develop`, `main` and `master` the project has built is used.
 
 ### Many variants per run
 
@@ -482,7 +483,8 @@ The panels about the flow of work count the whole project. The ones about how
 much room is left cannot: a bootloader on one board and an application on
 another have different memories, and summing them invents a chip that does not
 exist. So they are narrowed — but to a slice the project fixes once, rather than
-to dropdowns to be set again on every visit:
+to dropdowns to be set again on every visit: its main branch, and the variant in
+`overview` of its [dashboard settings](#dashboard-settings). Or by hand:
 
 ```bash
 ./fwtrack.sh dash --project blinky --overview-pin tag=prd,type=app,branch=dev
