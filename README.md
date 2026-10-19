@@ -400,8 +400,8 @@ dimension, a new memory area or changed [dashboard settings](#dashboard-settings
 
 One dashboard per project, in its own folder — folders are where permissions are
 granted, and a dashboard variable is a filter, not a boundary. Generated
-dashboards are read-only: regenerating rewrites the file. **Save As** for a
-private copy; port anything worth keeping back into the generator.
+dashboards are read-only: regenerating rewrites the file. For anything of your
+own, see [Your own dashboards](#your-own-dashboards).
 
 | Panel | |
 | --- | --- |
@@ -539,6 +539,19 @@ all of them buries it:
 
 Remembered the same way, and used as what the branch filter is set to when the
 memory dashboard is opened.
+
+### Your own dashboards
+
+Each project has a folder, and in it the two generated dashboards, **Overview**
+and **Regions**. Only those two are rewritten when the dashboards are generated
+again; anything else in the folder is yours. Log in as admin and create one
+there, or open a generated one and **Save As** next to it. The datasource is
+`fwtrack-postgres`, and `memory_points` (see [Data model](#data-model)) is the
+view to build on.
+
+They are kept by Grafana, in its own volume: they survive `update`, but not a
+new server — `./fwtrack.sh backup` covers the database. Export the ones that
+matter (**Share → Export → Save to file**) to have them somewhere else too.
 
 ## Operations
 
