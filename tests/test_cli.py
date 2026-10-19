@@ -41,3 +41,12 @@ def test_dry_run_shows_what_would_be_sent(project, monkeypatch, capsys):
 
     out = capsys.readouterr().out
     assert '"project": "fixture"' in out and '"area": "ram"' in out
+
+
+def test_nowhere_to_record_names_the_url(project, monkeypatch):
+    monkeypatch.setenv("FWTRACK_ENABLE", "1")
+    for name in ("FWTRACK_URL", "FWTRACK_DSN"):
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(RuntimeError, match="FWTRACK_URL"):
+        cli.run(config=project, read_dotenv=False, branch="dev")

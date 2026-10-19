@@ -14,16 +14,21 @@ schema: every start brings the database up to the version that is running.
 import json
 import os
 import secrets
+import threading
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import __version__, db
 from .config import MAX_TAG_VALUE, TAG_NAME
+from .grafana import gen_dashboard
 from .log import get_logger, setup_logging
 
 logger = get_logger(__name__)
 
 TOKEN_ENV = "FWTRACK_INGEST_TOKEN"
+# Where Grafana provisions dashboards from. Set in the bundled stack; without it
+# dashboards are left to fwtrack-dash.
+DASHBOARDS_ENV = "FWTRACK_DASHBOARDS_DIR"
 MAX_BODY = 1 << 20  # a build record is a few kilobytes; anything larger is a mistake
 MAX_TAGS = 32
 MAX_REGIONS = 256
@@ -89,6 +94,58 @@ def validate(payload) -> tuple[dict, list]:
     return build, regions
 
 
+def validate_dashboard(section) -> dict | None:
+    """The [dashboard] settings a build carries, or ValueError."""
+    if section is None:
+        return None
+    if not isinstance(section, dict):
+        raise ValueError("dashboard must be an object")
+
+    branch = section.get("main_branch")
+    if branch is not None and not (isinstance(branch, str) and 0 < len(branch) <= MAX_TAG_VALUE):
+        raise ValueError("dashboard.main_branch must be a branch name")
+    for field in ("variant_tags", "overview_pins"):
+        value = section.get(field)
+        if value is not None and not (
+            isinstance(value, list)
+            and len(value) <= MAX_TAGS
+            and all(isinstance(v, str) for v in value)
+        ):
+            raise ValueError(f"dashboard.{field} must be a list of strings")
+
+    if any(not TAG_NAME.fullmatch(t) for t in section.get("variant_tags") or []):
+        raise ValueError("dashboard.variant_tags: names are letters, digits and underscores")
+    for pin in section.get("overview_pins") or []:
+        key, sep, value = pin.partition("=")
+        if not sep or not TAG_NAME.fullmatch(key) or not 0 < len(value) <= MAX_TAG_VALUE:
+            raise ValueError(f"dashboard.overview_pins: '{pin}' is not KEY=VALUE")
+
+    return {f: section.get(f) for f in ("main_branch", "variant_tags", "overview_pins")}
+
+
+# One at a time: a build_all reports variant after variant, and two writers of
+# the same files would only race each other.
+_refresh = threading.Lock()
+
+
+def refresh_dashboards(project: str) -> None:
+    """Regenerate a project's dashboards in the background, if this stack serves them."""
+    out_dir = os.getenv(DASHBOARDS_ENV)
+    if not out_dir:
+        return
+
+    def work():
+        with _refresh:
+            try:
+                args = gen_dashboard.parse_args(["--project", project, "--out-dir", out_dir])
+                with db.connect() as conn:
+                    gen_dashboard.generate(conn, project, args)
+            except Exception as e:
+                logger.error(f"{project}: dashboards not regenerated: {e}")
+
+    threading.Thread(target=work, daemon=True).start()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "fwtrack"
     sys_version = ""
@@ -152,20 +209,38 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            build, regions = validate(json.loads(self.rfile.read(length)))
+            payload = json.loads(self.rfile.read(length))
+            build, regions = validate(payload)
+            dashboard = validate_dashboard(payload.get("dashboard"))
         except (ValueError, KeyError, TypeError) as e:
             self._reply(400, {"error": str(e)})
             return
 
+        project = build["project"]
         try:
             with db.connect() as conn:
+                tags = set(db.discover_variant_tags(conn, project))
+                areas = set(db.discover_areas(conn, project))
                 build_id = db.write_build(conn, build, regions)
+                changed = dashboard is not None and db.sync_project_settings(
+                    conn, project, dashboard
+                )
         except Exception as e:
             logger.error(f"Write failed: {e}")
             self._reply(500, {"error": "write failed"})
             return
 
         self._reply(201, {"build_id": build_id, "regions": len(regions)})
+
+        # A new project, a new dimension, a new memory area or new settings is
+        # something the dashboards cannot show until they are generated again.
+        if (
+            changed
+            or not areas
+            or set(build["tags"]) - tags
+            or {r["area"] for r in regions} - areas
+        ):
+            refresh_dashboards(project)
 
 
 def prepare_database() -> None:

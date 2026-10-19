@@ -212,6 +212,23 @@ requirement. Every setting can also be passed as an argument.
 
 Precedence: arguments, then environment, then `.env`.
 
+### Dashboard settings
+
+How the project's dashboards are laid out lives in its own `fw_tracking.toml`,
+next to everything else about it, and travels with every build:
+
+```toml
+[dashboard]
+main_branch = "dev"                       # dashboards open on it; the overview keeps to it
+overview = { tag = "prd", type = "app" }  # the variant the overview shows
+filters = ["tag", "type", "platform"]     # which dimensions are filters, in this order
+```
+
+The server takes them from the next build and regenerates the dashboards; a
+setting left out of the section goes back to its default. Without the section,
+whatever was set with `./fwtrack.sh dash` stays. With no `main_branch` anywhere,
+the first of `dev`, `develop`, `main` and `master` the project has built is used.
+
 ### Many variants per run
 
 `fwtrack` records one build. A build system looping over variants in Python
@@ -375,13 +392,16 @@ history recorded before a tag existed stays visible.
 
 ## Dashboards
 
-`./fwtrack.sh dash --project blinky` asks the database which dimensions, areas
-and regions a project has. Nothing about a project is hardcoded.
+Generated from what the database holds — which dimensions, areas and regions a
+project has — so nothing about a project is hardcoded. The ingest service does
+it on its own: for a project's first build, and whenever a build brings a new
+dimension, a new memory area or changed [dashboard settings](#dashboard-settings).
+`./fwtrack.sh dash --project blinky` does it by hand.
 
 One dashboard per project, in its own folder — folders are where permissions are
 granted, and a dashboard variable is a filter, not a boundary. Generated
-dashboards are read-only: regenerating rewrites the file. **Save As** for a
-private copy; port anything worth keeping back into the generator.
+dashboards are read-only: regenerating rewrites the file. For anything of your
+own, see [Your own dashboards](#your-own-dashboards).
 
 | Panel | |
 | --- | --- |
@@ -463,7 +483,8 @@ The panels about the flow of work count the whole project. The ones about how
 much room is left cannot: a bootloader on one board and an application on
 another have different memories, and summing them invents a chip that does not
 exist. So they are narrowed — but to a slice the project fixes once, rather than
-to dropdowns to be set again on every visit:
+to dropdowns to be set again on every visit: its main branch, and the variant in
+`overview` of its [dashboard settings](#dashboard-settings). Or by hand:
 
 ```bash
 ./fwtrack.sh dash --project blinky --overview-pin tag=prd,type=app,branch=dev
@@ -518,6 +539,19 @@ all of them buries it:
 
 Remembered the same way, and used as what the branch filter is set to when the
 memory dashboard is opened.
+
+### Your own dashboards
+
+Each project has a folder, and in it the two generated dashboards, **Overview**
+and **Regions**. Only those two are rewritten when the dashboards are generated
+again; anything else in the folder is yours. Log in as admin and create one
+there, or open a generated one and **Save As** next to it. The datasource is
+`fwtrack-postgres`, and `memory_points` (see [Data model](#data-model)) is the
+view to build on.
+
+They are kept by Grafana, in its own volume: they survive `update`, but not a
+new server — `./fwtrack.sh backup` covers the database. Export the ones that
+matter (**Share → Export → Save to file**) to have them somewhere else too.
 
 ## Operations
 

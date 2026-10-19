@@ -45,3 +45,25 @@ def test_most_specific_threshold_wins():
 
 def test_unmatched_region_is_still_recorded():
     assert config.resolve_area("NEW_REGION", {"group": []}) == config.FALLBACK_AREA
+
+
+def test_dashboard_settings_come_from_the_project():
+    assert config.dashboard_settings({}) is None
+
+    settings = config.dashboard_settings(
+        {
+            "dashboard": {
+                "main_branch": "dev",
+                "filters": ["tag", "board-rev"],
+                "overview": {"tag": "prd", "type": "app"},
+            }
+        }
+    )
+
+    assert settings == {
+        "main_branch": "dev",
+        "variant_tags": ["tag"],
+        "overview_pins": ["tag=prd", "type=app"],
+    }
+    # A section left empty puts every setting back to its default.
+    assert config.dashboard_settings({"dashboard": {}}) == dict.fromkeys(settings)

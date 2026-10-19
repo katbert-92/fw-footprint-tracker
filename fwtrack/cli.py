@@ -17,6 +17,7 @@ from .analyse import analyse
 from .config import (
     DEFAULT_ELF,
     DEFAULT_MAP,
+    dashboard_settings,
     find_config,
     load_config,
     load_meta,
@@ -180,12 +181,14 @@ def run(
             origin,
         )
         regions = region_records(analysis["regions"], settings)
+        dashboard = dashboard_settings(settings)
 
         if dry_run:
-            print(json.dumps({"build": build, "regions": regions}, indent=2, default=str))
+            payload = {"build": build, "regions": regions, "dashboard": dashboard}
+            print(json.dumps(payload, indent=2, default=str))
             logger.info(f"Dry run: {len(regions)} regions not written")
         else:
-            build_id = db.record(build, regions, url=url, token=token, dsn=dsn)
+            build_id = db.record(build, regions, url=url, token=token, dsn=dsn, dashboard=dashboard)
 
     if over:
         raise BudgetExceeded("Over budget: " + "; ".join(over))

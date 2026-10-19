@@ -56,6 +56,7 @@ def test_invalid_payloads_are_refused(bad):
 @pytest.fixture
 def endpoint(monkeypatch):
     written = []
+    refreshed = []
 
     class Connection:
         def __enter__(self):
@@ -71,6 +72,11 @@ def endpoint(monkeypatch):
     monkeypatch.setattr(
         server.db, "write_build", lambda conn, build, regions: written.append(build) or 7
     )
+    # A project the database already has, with every tag and area of BUILD.
+    monkeypatch.setattr(server.db, "discover_variant_tags", lambda conn, p: [])
+    monkeypatch.setattr(server.db, "discover_areas", lambda conn, p: ["flash"])
+    monkeypatch.setattr(server.db, "sync_project_settings", lambda conn, p, wanted: True)
+    monkeypatch.setattr(server, "refresh_dashboards", refreshed.append)
 
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
     httpd.token = "s3cret"
@@ -120,3 +126,31 @@ def test_invalid_build_is_a_400_not_a_500(endpoint):
 
     assert status == 400 and "a b" in body["error"]
     assert not written
+
+
+@pytest.mark.parametrize(
+    "section",
+    [
+        {"main_branch": 1},
+        {"variant_tags": "cfg"},
+        {"variant_tags": ["board-rev"]},
+        {"overview_pins": ["branch"]},
+        [],
+    ],
+)
+def test_invalid_dashboard_settings_are_refused(section):
+    with pytest.raises(ValueError):
+        server.validate_dashboard(section)
+
+
+def test_new_settings_regenerate_the_dashboards(monkeypatch, endpoint):
+    port, _ = endpoint
+    refreshed = []
+    monkeypatch.setattr(server, "refresh_dashboards", refreshed.append)
+
+    status, _ = call(port, "POST", "/ingest/builds", payload())
+    assert status == 201 and refreshed == []
+
+    body = {**payload(), "dashboard": {"main_branch": "dev"}}
+    status, _ = call(port, "POST", "/ingest/builds", body)
+    assert status == 201 and refreshed == ["blinky"]

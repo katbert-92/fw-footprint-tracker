@@ -121,7 +121,9 @@ DELETE FROM memory_usage WHERE build_id = %(build_id)s AND NOT region = ANY(%(re
 """
 
 
-def record(build: dict, regions: list, url=None, token=None, dsn=None) -> int | None:
+def record(
+    build: dict, regions: list, url=None, token=None, dsn=None, dashboard: dict | None = None
+) -> int | None:
     """Store one build, over HTTP if a URL is known and straight to the database otherwise.
 
     Every setting can be passed in. Nothing here insists on environment
@@ -134,10 +136,21 @@ def record(build: dict, regions: list, url=None, token=None, dsn=None) -> int | 
     # value" from deep inside urllib.
     url = (url or os.getenv(URL_ENV) or "").strip()
     if url:
-        return post(url, build, regions, token)
+        return post(url, build, regions, token, dashboard)
+
+    # Named here rather than left to get_dsn: a runner is meant to have the URL,
+    # and an error about the DSN alone sends the reader after the wrong setting.
+    if not (dsn or os.getenv(DSN_ENV) or "").strip():
+        raise RuntimeError(
+            f"Nowhere to record to: set {URL_ENV} and {TOKEN_ENV} to go through the "
+            f"ingest service, or {DSN_ENV} to write to the database directly"
+        )
 
     with connect(dsn) as conn:
-        return write_build(conn, build, regions)
+        build_id = write_build(conn, build, regions)
+        if dashboard is not None:
+            sync_project_settings(conn, build["project"], dashboard)
+        return build_id
 
 
 def api(
@@ -180,10 +193,17 @@ def api(
         raise RuntimeError(f"Ingest returned {e.code}: {e.read().decode()[:200]}") from e
 
 
-def post(url: str, build: dict, regions: list, token: str | None = None) -> int | None:
-    result = api(
-        "POST", "/ingest/builds", {"build": build, "regions": regions}, url=url, token=token
-    )
+def post(
+    url: str,
+    build: dict,
+    regions: list,
+    token: str | None = None,
+    dashboard: dict | None = None,
+) -> int | None:
+    payload = {"build": build, "regions": regions}
+    if dashboard is not None:
+        payload["dashboard"] = dashboard
+    result = api("POST", "/ingest/builds", payload, url=url, token=token)
     logger.info(f"Recorded {build['project']}@{build['commit']} via {url}")
     return result.get("build_id")
 
@@ -355,6 +375,12 @@ def discover_variant_tags(conn: psycopg.Connection, project: str) -> list:
         conn,
         "SELECT DISTINCT jsonb_object_keys(tags) FROM builds WHERE project = %s ORDER BY 1",
         (project,),
+    )
+
+
+def list_branches(conn: psycopg.Connection, project: str) -> list:
+    return fetch_column(
+        conn, "SELECT DISTINCT branch FROM builds WHERE project = %s ORDER BY 1", (project,)
     )
 
 
@@ -594,6 +620,28 @@ def save_project_settings(conn: psycopg.Connection, project: str, **values) -> N
         )
 
     conn.commit()
+
+
+def sync_project_settings(conn: psycopg.Connection, project: str, wanted: dict) -> bool:
+    """Make the stored settings what the project config says; True if that changed them."""
+    wanted = {name: wanted.get(name) or None for name in SETTINGS}
+    if {name: value or None for name, value in project_settings(conn, project).items()} == {
+        name: value for name, value in wanted.items() if value
+    }:
+        return False
+
+    with conn.cursor() as cur:
+        cur.execute(
+            f"INSERT INTO project_settings (project, {', '.join(SETTINGS)}) "
+            f"VALUES (%(project)s, {', '.join(f'%({n})s' for n in SETTINGS)}) "
+            "ON CONFLICT (project) DO UPDATE SET "
+            + ", ".join(f"{n} = EXCLUDED.{n}" for n in SETTINGS)
+            + ", updated_at = now()",
+            {"project": project, **wanted},
+        )
+    conn.commit()
+    logger.info(f"{project}: dashboard settings taken from the project config")
+    return True
 
 
 def reset_project_settings(conn: psycopg.Connection, project: str, names: list) -> None:
