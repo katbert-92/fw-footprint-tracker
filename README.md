@@ -212,6 +212,22 @@ requirement. Every setting can also be passed as an argument.
 
 Precedence: arguments, then environment, then `.env`.
 
+### Dashboard settings
+
+How the project's dashboards are laid out lives in its own `fw_tracking.toml`,
+next to everything else about it, and travels with every build:
+
+```toml
+[dashboard]
+main_branch = "dev"                       # dashboards open on it; the overview keeps to it
+overview = { tag = "prd", type = "app" }  # the variant the overview shows
+filters = ["tag", "type", "platform"]     # which dimensions are filters, in this order
+```
+
+The server takes them from the next build and regenerates the dashboards; a
+setting left out of the section goes back to its default. Without the section,
+whatever was set with `./fwtrack.sh dash` stays.
+
 ### Many variants per run
 
 `fwtrack` records one build. A build system looping over variants in Python
@@ -375,8 +391,11 @@ history recorded before a tag existed stays visible.
 
 ## Dashboards
 
-`./fwtrack.sh dash --project blinky` asks the database which dimensions, areas
-and regions a project has. Nothing about a project is hardcoded.
+Generated from what the database holds — which dimensions, areas and regions a
+project has — so nothing about a project is hardcoded. The ingest service does
+it on its own: for a project's first build, and whenever a build brings a new
+dimension, a new memory area or changed [dashboard settings](#dashboard-settings).
+`./fwtrack.sh dash --project blinky` does it by hand.
 
 One dashboard per project, in its own folder — folders are where permissions are
 granted, and a dashboard variable is a filter, not a boundary. Generated

@@ -75,6 +75,8 @@ services:
       FWTRACK_DSN: postgresql://${POSTGRES_USER:-fwtrack}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-fwtrack}
       FWTRACK_INGEST_TOKEN: ${FWTRACK_INGEST_TOKEN:?run ./fwtrack.sh up, which generates it}
       FWTRACK_GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}
+      # Regenerates a project's dashboards when a build brings something new.
+      FWTRACK_DASHBOARDS_DIR: /dashboards
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${INGEST_PORT:-8099}:8099"
     volumes:

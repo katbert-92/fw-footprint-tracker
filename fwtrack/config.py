@@ -234,3 +234,27 @@ def collect_custom_tags(meta: dict, config: dict, cli_tags: list) -> dict:
         del tags[key]
 
     return tags
+
+
+def dashboard_settings(config: dict) -> dict | None:
+    """[dashboard] of the project config, in the shape the server stores it.
+
+    None without the section, and the server keeps what it has. A section that
+    is there is the whole truth: a setting left out of it is back to its default.
+    """
+    section = config.get("dashboard")
+    if section is None:
+        return None
+
+    filters = [str(f).strip() for f in section.get("filters") or []]
+    overview = {str(k).strip(): str(v).strip() for k, v in (section.get("overview") or {}).items()}
+    unusable = [f for f in filters if not TAG_NAME.fullmatch(f)]
+    unusable += [k for k, v in overview.items() if not valid_tag(k, v)]
+    if unusable:
+        logger.warning(f"[dashboard] ignores what no tag can be called: {', '.join(unusable)}")
+
+    return {
+        "main_branch": str(section.get("main_branch") or "").strip() or None,
+        "variant_tags": [f for f in filters if f not in unusable] or None,
+        "overview_pins": [f"{k}={v}" for k, v in overview.items() if k not in unusable] or None,
+    }

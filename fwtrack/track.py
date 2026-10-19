@@ -19,6 +19,7 @@ from dotenv import find_dotenv, load_dotenv
 from . import db
 from .config import (
     collect_custom_tags,
+    dashboard_settings,
     find_config,
     load_config,
     load_meta,
@@ -378,15 +379,17 @@ def main():
 
         build = build_record(meta, config, args.tag, toolchain, args.repo)
         regions = region_records(usage, config)
+        dashboard = dashboard_settings(config)
 
         if args.dry_run:
-            print(json.dumps({"build": build, "regions": regions}, indent=2, default=str))
+            payload = {"build": build, "regions": regions, "dashboard": dashboard}
+            print(json.dumps(payload, indent=2, default=str))
             logger.info(f"Dry run: {len(regions)} regions not written")
             return
 
         # The same path as fwtrack's: over HTTP when FWTRACK_URL is set, which
         # is what a runner without database credentials depends on.
-        db.record(build, regions)
+        db.record(build, regions, dashboard=dashboard)
     except Exception as e:
         logger.error(f"Failed to record the build: {e}")
         sys.exit(1)

@@ -44,7 +44,7 @@ USER_AGENT = f"fw-footprint-tracker/{__version__}"
 FALLBACK_AREAS = ["flash", "ram"]
 
 
-def parse_args():
+def parse_args(argv: list | None = None):
     parser = argparse.ArgumentParser(description="Generate a Grafana dashboard for one project")
     parser.add_argument("--project", help="Project name")
     parser.add_argument(
@@ -91,7 +91,7 @@ def parse_args():
         "repeatable",
     )
 
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def query_variable(name: str, label: str, sql: str, multi: bool = False, default: str = "") -> dict:

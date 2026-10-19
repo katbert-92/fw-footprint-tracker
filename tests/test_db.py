@@ -101,3 +101,12 @@ def test_settings_can_be_reset(conn):
     db.reset_project_settings(conn, "blinky", ["overview_pins"])
 
     assert db.project_settings(conn, "blinky") == {"main_branch": "dev"}
+
+
+def test_project_config_replaces_the_stored_settings(conn):
+    db.save_project_settings(conn, "blinky", main_branch="main", overview_pins=["tag=prd"])
+    wanted = {"main_branch": "dev", "variant_tags": None, "overview_pins": None}
+
+    assert db.sync_project_settings(conn, "blinky", wanted)
+    assert db.project_settings(conn, "blinky") == {"main_branch": "dev"}
+    assert not db.sync_project_settings(conn, "blinky", wanted)
