@@ -136,6 +136,14 @@ def record(build: dict, regions: list, url=None, token=None, dsn=None) -> int | 
     if url:
         return post(url, build, regions, token)
 
+    # Named here rather than left to get_dsn: a runner is meant to have the URL,
+    # and an error about the DSN alone sends the reader after the wrong setting.
+    if not (dsn or os.getenv(DSN_ENV) or "").strip():
+        raise RuntimeError(
+            f"Nowhere to record to: set {URL_ENV} and {TOKEN_ENV} to go through the "
+            f"ingest service, or {DSN_ENV} to write to the database directly"
+        )
+
     with connect(dsn) as conn:
         return write_build(conn, build, regions)
 
