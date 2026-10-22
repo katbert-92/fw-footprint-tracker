@@ -84,6 +84,14 @@ def make_usage_bar(pcnt: float, length: int = USAGE_BAR_LENGTH) -> str:
     return "█" * filled + "░" * (length - filled)
 
 
+def print_table(title: str, table: str) -> None:
+    """A table under its title, set off from the one before and from the log around it.
+
+    Flushed: a build system logging to stderr would otherwise see it land after its own lines.
+    """
+    print(f"\n{title}:\n{table}", flush=True)
+
+
 def print_memory_usage(region_usage: dict) -> None:
     table = [
         [
@@ -98,7 +106,9 @@ def print_memory_usage(region_usage: dict) -> None:
     ]
     headers = ["Region", "Origin", "Total (KB)", "Used (KB)", "Usage %", "Fill"]
     colalign = ("left", "left", "left", "left", "center")
-    print(tabulate(table, headers=headers, tablefmt="grid", colalign=colalign))
+    print_table(
+        "Memory usage", tabulate(table, headers=headers, tablefmt="grid", colalign=colalign)
+    )
 
 
 def section_usage(regions: dict, sections: dict) -> list:
@@ -132,7 +142,7 @@ def print_sections(sections: list) -> None:
         for s in sections
     ]
     headers = ["Section", "Region", "Addr", "Size (B)", "Size (KB)"]
-    print(tabulate(table, headers=headers, tablefmt="grid"))
+    print_table("Sections", tabulate(table, headers=headers, tablefmt="grid"))
 
 
 def measure(elf: ElfParser, map_info: dict, elf_path: Path) -> dict:
@@ -152,11 +162,12 @@ def analyse(elf_path: Path, map_path: Path, sections: bool = False) -> dict:
         raise ValueError(f"{map_path} has no memory configuration; is it a GNU ld map?")
 
     elf = ElfParser(elf_path)
-
-    if sections:
-        print_sections(section_usage(map_info, elf.get_sections_info()))
-
+    section_rows = section_usage(map_info, elf.get_sections_info()) if sections else None
     usage = measure(elf, map_info, elf_path)
+
+    # Printed once parsing is done, so its log lines do not land between the tables
+    if section_rows is not None:
+        print_sections(section_rows)
     print_memory_usage(usage)
 
     # Anything the ELF already knows travels with the numbers, so the caller
