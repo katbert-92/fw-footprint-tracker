@@ -657,8 +657,8 @@ does the same.
 
 ## Versions
 
-Releases are tagged on `main`; `dev` is where work lands. Pin both sides to the
-same tag: a branch moves under you, a tag does not.
+`dev` is where work lands; releases are tagged on `main` or `dev`. Pin both sides to
+the same tag: a branch moves under you, a tag does not.
 
 | | |
 | --- | --- |
@@ -669,8 +669,8 @@ On a server checked out at a release, `./fwtrack.sh update` moves to the newest
 one; on a branch, it pulls. `curl https://<host>/ingest/health` reports the
 version a server is running.
 
-Cutting a release: merge `dev` into `main`, then `./scripts/release.sh 0.5.1`.
-It sets the version in `pyproject.toml`, commits, tags and pushes. A tag made
+Cutting a release: `./scripts/release.sh 0.5.1` on `main` or `dev`. It sets the
+version in `pyproject.toml`, commits, tags and pushes that branch. A tag made
 by hand keeps the old version, and pip will not see the update.
 
 ## Development
