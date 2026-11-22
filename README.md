@@ -586,6 +586,8 @@ or to have been named badly, or a build gets recorded that should not have been.
 ./fwtrack.sh tags rename --project blinky cfg config
 ./fwtrack.sh tags rename-value --project blinky adeq 52362d NB_B100.EXTLOCK
 ./fwtrack.sh tags drop-build 1090
+./fwtrack.sh tags drop-project --project old -n      # a whole project, what it would do
+./fwtrack.sh tags drop-project --project old         # do it
 
 ./fwtrack.sh dash --project blinky                    # regenerate the dashboard afterwards
 ```
@@ -604,6 +606,11 @@ which are columns rather than tags but the same thing from a dashboard:
 Every edit is scoped to one project. An edit that would leave two builds
 identical — same commit, same time, same dimensions — is refused rather than
 guessed at; delete the redundant build first.
+
+`drop-project` is the one that does not come back: it deletes the builds, the
+region budgets and the dashboard settings, and the two generated dashboards with
+them. Anything you drew by hand in the project's folder stays. Building the
+project again starts it from nothing.
 
 To stop filtering by a dimension without touching history:
 `./fwtrack.sh dash --project blinky --exclude-tags bsp`.

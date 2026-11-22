@@ -103,6 +103,22 @@ def test_settings_can_be_reset(conn):
     assert db.project_settings(conn, "blinky") == {"main_branch": "dev"}
 
 
+def test_dropping_a_project_takes_its_budgets_and_settings(conn):
+    db.write_build(conn, build(), regions("FLASH"))
+    db.save_project_settings(conn, "blinky", main_branch="dev")
+    db.write_build(conn, build(project="other"), regions("FLASH"))
+
+    counts = {"builds": 1, "budgets": 1, "settings": 1}
+    assert db.drop_project(conn, "blinky", dry_run=True) == counts
+    assert db.project_settings(conn, "blinky") == {"main_branch": "dev"}
+
+    assert db.drop_project(conn, "blinky") == counts
+    assert db.list_projects(conn) == ["other"]
+    assert conn.execute("SELECT count(*) FROM memory_usage").fetchone()[0] == 1
+    assert conn.execute("SELECT count(*) FROM region_budgets").fetchone()[0] == 1
+    assert conn.execute("SELECT count(*) FROM project_settings").fetchone()[0] == 0
+
+
 def test_project_config_replaces_the_stored_settings(conn):
     db.save_project_settings(conn, "blinky", main_branch="main", overview_pins=["tag=prd"])
     wanted = {"main_branch": "dev", "variant_tags": None, "overview_pins": None}

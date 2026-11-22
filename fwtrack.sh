@@ -19,6 +19,7 @@
 #   ./fwtrack.sh tags rename --project blinky a b
 #   ./fwtrack.sh tags rename-value --project blinky cfg 52362d NB_B100
 #   ./fwtrack.sh tags drop-build 1090            delete one build and its regions
+#   ./fwtrack.sh tags drop-project --project old delete everything recorded for a project
 #   ./fwtrack.sh status | logs | down | restart
 #
 # A dispatcher and nothing more. Lifecycle goes to docker compose, data commands

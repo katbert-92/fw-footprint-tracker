@@ -114,6 +114,15 @@ WHERE project = %(project)s AND tags ? %(old)s
 # memory_usage goes with it: the foreign key is ON DELETE CASCADE.
 DELETE_BUILD = "DELETE FROM builds WHERE id = %s RETURNING project, commit, built_at"
 
+# A project is not only its builds: budgets and dashboard policy are keyed by
+# the same name and outlive the builds that introduced them, so leaving them
+# behind would make a deleted project reappear the moment it is built again.
+DELETE_PROJECT = {
+    "builds": "DELETE FROM builds WHERE project = %s",
+    "budgets": "DELETE FROM region_budgets WHERE project = %s",
+    "settings": "DELETE FROM project_settings WHERE project = %s",
+}
+
 # A rerun of a build replaces it, regions included: one the linker script no
 # longer has must not stay behind with the numbers of the previous run.
 DROP_STALE_REGIONS = """
@@ -582,6 +591,18 @@ def delete_build(conn: psycopg.Connection, build_id: int, dry_run: bool = False)
 
     project, commit, built_at = row
     return {"id": build_id, "project": project, "commit": commit, "built_at": built_at}
+
+
+def drop_project(conn: psycopg.Connection, project: str, dry_run: bool = False) -> dict:
+    """Delete everything recorded for one project. Returns the row counts."""
+    counts = {}
+    with conn.cursor() as cur:
+        for name, statement in DELETE_PROJECT.items():
+            cur.execute(statement, (project,))
+            counts[name] = cur.rowcount
+
+    _write(conn, dry_run)
+    return counts
 
 
 SETTINGS = ("variant_tags", "main_branch", "overview_pins")

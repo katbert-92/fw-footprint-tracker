@@ -13,6 +13,7 @@ on the server, through the container that already holds its credentials:
     fwtrack-tags rename --project blinky cfg config
     fwtrack-tags rename-value --project blinky adeq 52362d NB_B100.EXTLOCK
     fwtrack-tags drop-build 1090
+    fwtrack-tags drop-project --project old         everything, dashboards included
 
 On a server these are reached through ./fwtrack.sh, which runs them in the
 container that already holds the database credentials.
@@ -25,7 +26,9 @@ refusal to collapse two builds into one.
 """
 
 import argparse
+import os
 import sys
+from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
 from tabulate import tabulate
@@ -82,6 +85,11 @@ def parse_args():
     )
     build.add_argument("build_id", type=int)
 
+    whole = commands.add_parser(
+        "drop-project", parents=[common], help="Delete everything recorded for a project"
+    )
+    whole.add_argument("--project", required=True)
+
     return parser.parse_args()
 
 
@@ -126,6 +134,37 @@ def report(dry_run: bool, message: str) -> None:
     print(f"Dry run: {message[0].lower() + message[1:]} (nothing written)" if dry_run else message)
 
 
+def dashboards_of(project: str) -> list[Path]:
+    """The two dashboards generated for a project, where this machine has them.
+
+    Grafana provisions them from a directory of files, so removing the files is
+    what removes the dashboards. Only the generated pair goes: a dashboard drawn
+    by hand in the project's folder was never ours, and rebuilding the project
+    writes the pair again from the database.
+    """
+    root = os.getenv("FWTRACK_DASHBOARDS_DIR")
+    if not root:
+        return []
+
+    folder = Path(root) / project
+    names = (f"fwtrack-{project}.json", f"fwtrack-{project}-activity.json")
+    return [path for path in (folder / name for name in names) if path.exists()]
+
+
+def remove_dashboards(files: list[Path]) -> None:
+    if not files:
+        return
+
+    for path in files:
+        path.unlink()
+
+    # Grafana makes a folder out of the directory, so an empty one left behind
+    # is a folder with nothing in it.
+    folder = files[0].parent
+    if not any(folder.iterdir()):
+        folder.rmdir()
+
+
 def run(args) -> None:
     with db.connect() as conn:
         if args.command == "list":
@@ -157,6 +196,22 @@ def run(args) -> None:
                 args.dry_run,
                 f"'{args.tag}={args.old}' renamed to '{args.new}' in {affected} builds",
             )
+            return
+
+        if args.command == "drop-project":
+            counts = db.drop_project(conn, args.project, args.dry_run)
+            if not any(counts.values()):
+                logger.error(f"Nothing recorded for '{args.project}'")
+                sys.exit(1)
+
+            dashboards = dashboards_of(args.project)
+            if not args.dry_run:
+                remove_dashboards(dashboards)
+
+            parts = [f"{count} {name}" for name, count in counts.items() if count]
+            if dashboards:
+                parts.append(f"{len(dashboards)} dashboards")
+            report(args.dry_run, f"'{args.project}' deleted: {', '.join(parts)}")
             return
 
         deleted = db.delete_build(conn, args.build_id, args.dry_run)
