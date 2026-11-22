@@ -609,8 +609,10 @@ guessed at; delete the redundant build first.
 
 `drop-project` is the one that does not come back: it deletes the builds, the
 region budgets and the dashboard settings, and the two generated dashboards with
-them. Anything you drew by hand in the project's folder stays. Building the
-project again starts it from nothing.
+them. Anything you drew by hand in the project's folder stays, and so does the
+folder itself — Grafana makes folders out of directories and never removes one
+on its own. Building the project again starts it from nothing and fills that
+folder again.
 
 To stop filtering by a dimension without touching history:
 `./fwtrack.sh dash --project blinky --exclude-tags bsp`.

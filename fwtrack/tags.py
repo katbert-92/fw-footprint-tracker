@@ -158,8 +158,9 @@ def remove_dashboards(files: list[Path]) -> None:
     for path in files:
         path.unlink()
 
-    # Grafana makes a folder out of the directory, so an empty one left behind
-    # is a folder with nothing in it.
+    # Grafana turns each directory into a folder and only ever adds those, so
+    # the empty one stays behind for a project that is built again later. Delete
+    # it in the UI if the project is not coming back.
     folder = files[0].parent
     if not any(folder.iterdir()):
         folder.rmdir()
